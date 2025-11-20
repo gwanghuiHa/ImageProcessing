@@ -2,7 +2,7 @@
 Image processing script for GH group
 
 ## Structure
-'''
+```
 Mainscript
 │
 ├──LoadDat
@@ -10,7 +10,7 @@ Mainscript
 │      └──load(filenames=[], datType=[])
 │
 │
-'''
+```
 ## Documentation
 All module must have the following form
     dat = load(filenames = [],datType = [] )
