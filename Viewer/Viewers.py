@@ -1,527 +1,540 @@
 """
-Image viewers
+Image or ICT viewers
 
 @author: Gwanghui
 
-1. launch_image_viewer(images)
+1. image_viewer_simple(images,x_axis=None,y_axis=None,mode="single",cmap="viridis",title=None)
     images: numpy array with the dimension of (N-shots, X, Y)
-2. launch_ict_viewer(ict_dict, sec_per_div=200e-9)
-    Example:
-        ict_dict = {
-            'Ch1_wfm': dat[0]['Ch1_wfm'],
-            'Ch2_wfm': dat[0]['Ch2_wfm'],
-        }
-        launch_ict_viewer(ict_dict, sec_per_div=200e-9)
+    x(y)_axis: x- and y-axis array. If None, just use pixel numbers
+    mode: single/all/overlap/average
+2. ict_viewer(ict_wfm, ns_per_div=200, mode="single", title=None)
+    ict_wfm: list including ict waveforms for each shot
+    ns_per_div: scope scale
+    mode: single/all/overlap/average
 """
 #%%
-import sys
 import numpy as np
-
-from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QComboBox, QSpinBox, QLabel, QSlider, QCheckBox
-)
-
-import matplotlib
-matplotlib.use("Qt5Agg")
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-#%%
-class ImageViewer(QMainWindow):
-    def __init__(self, images, parent=None):
-        super().__init__(parent)
-
-        self.images = np.asarray(images)
-        if self.images.ndim != 3:
-            raise ValueError("images must have shape (n_shot, ny, nx)")
-
-        self.n_shot, self.ny, self.nx = self.images.shape
-
-        # basic stats for color range
-        self.data_min = float(np.nanmin(self.images))
-        self.data_max = float(np.nanmax(self.images))
-        if self.data_max == self.data_min:
-            self.data_max = self.data_min + 1.0
-
-        self.setWindowTitle("Shot Image Viewer")
-        self._init_ui()
-
-    # --------------------- UI SETUP ---------------------
-    def _init_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-
-        main_layout = QVBoxLayout()
-        central.setLayout(main_layout)
-
-        # --- top controls: mode selection ---
-        mode_layout = QHBoxLayout()
-        mode_label = QLabel("Mode:")
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Single shot", "Grid (all shots)", "Overlay first N"])
-        mode_layout.addWidget(mode_label)
-        mode_layout.addWidget(self.mode_combo)
-        mode_layout.addStretch()
-        main_layout.addLayout(mode_layout)
-
-        # --- single shot controls ---
-        self.single_ctrl_layout = QHBoxLayout()
-
-        self.btn_prev = QPushButton("◀ Prev")
-        self.btn_next = QPushButton("Next ▶")
-
-        self.shot_spin = QSpinBox()
-        self.shot_spin.setRange(0, self.n_shot - 1)
-        self.shot_spin.setValue(0)
-        self.shot_spin.setPrefix("Shot ")
-
-        self.single_ctrl_layout.addWidget(self.btn_prev)
-        self.single_ctrl_layout.addWidget(self.btn_next)
-        self.single_ctrl_layout.addWidget(self.shot_spin)
-        self.single_ctrl_layout.addStretch()
-
-        main_layout.addLayout(self.single_ctrl_layout)
-
-        # --- overlay controls ---
-        self.overlay_ctrl_layout = QHBoxLayout()
-        self.overlay_label = QLabel("N overlay:")
-        self.overlay_spin = QSpinBox()
-        self.overlay_spin.setRange(1, self.n_shot)
-        self.overlay_spin.setValue(min(5, self.n_shot))
-
-        self.overlay_ctrl_layout.addWidget(self.overlay_label)
-        self.overlay_ctrl_layout.addWidget(self.overlay_spin)
-        self.overlay_ctrl_layout.addStretch()
-
-        main_layout.addLayout(self.overlay_ctrl_layout)
-
-        # --- color range sliders ---
-        color_layout = QHBoxLayout()
-
-        self.label_vmin = QLabel("vmin")
-        self.slider_vmin = QSlider(QtCore.Qt.Horizontal)
-        self.slider_vmin.setRange(0, 1000)
-        self.slider_vmin.setValue(0)
-
-        self.label_vmax = QLabel("vmax")
-        self.slider_vmax = QSlider(QtCore.Qt.Horizontal)
-        self.slider_vmax.setRange(0, 1000)
-        self.slider_vmax.setValue(1000)
-
-        color_layout.addWidget(self.label_vmin)
-        color_layout.addWidget(self.slider_vmin)
-        color_layout.addWidget(self.label_vmax)
-        color_layout.addWidget(self.slider_vmax)
-
-        main_layout.addLayout(color_layout)
-
-        # --- matplotlib canvas ---
-        self.fig = Figure()
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvas(self.fig)
-        main_layout.addWidget(self.canvas)
-
-        # connect signals
-        self.mode_combo.currentIndexChanged.connect(self.update_mode_visibility)
-        self.btn_prev.clicked.connect(self.on_prev)
-        self.btn_next.clicked.connect(self.on_next)
-        self.shot_spin.valueChanged.connect(self.redraw)
-        self.overlay_spin.valueChanged.connect(self.redraw)
-        self.slider_vmin.valueChanged.connect(self.redraw)
-        self.slider_vmax.valueChanged.connect(self.redraw)
-
-        # set initial visibility and draw
-        self.update_mode_visibility()
-        self.redraw()
-
-    # --------------------- HELPERS ---------------------
-    def get_vmin_vmax(self):
-        # map slider [0, 1000] -> [data_min, data_max]
-        smin = self.slider_vmin.value()
-        smax = self.slider_vmax.value()
-
-        # ensure smin <= smax
-        if smin > smax:
-            smin, smax = smax, smin
-
-        frac_min = smin / 1000.0
-        frac_max = smax / 1000.0
-
-        vmin = self.data_min + frac_min * (self.data_max - self.data_min)
-        vmax = self.data_min + frac_max * (self.data_max - self.data_min)
-
-        if vmin == vmax:
-            vmax = vmin + 1e-12
-
-        return vmin, vmax
-
-    def update_mode_visibility(self):
-        mode = self.mode_combo.currentText()
-
-        # show single shot controls only in that mode
-        single_visible = (mode == "Single shot")
-        for i in range(self.single_ctrl_layout.count()):
-            item = self.single_ctrl_layout.itemAt(i)
-            widget = item.widget()
-            if widget is not None:
-                widget.setVisible(single_visible)
-
-        # show overlay controls only in overlay mode
-        overlay_visible = (mode == "Overlay first N")
-        for i in range(self.overlay_ctrl_layout.count()):
-            item = self.overlay_ctrl_layout.itemAt(i)
-            widget = item.widget()
-            if widget is not None:
-                widget.setVisible(overlay_visible)
-
-        self.redraw()
-
-    # --------------------- CALLBACKS ---------------------
-    def on_prev(self):
-        val = self.shot_spin.value()
-        if val > 0:
-            self.shot_spin.setValue(val - 1)
-
-    def on_next(self):
-        val = self.shot_spin.value()
-        if val < self.n_shot - 1:
-            self.shot_spin.setValue(val + 1)
-
-    # --------------------- DRAWING ----------------------
-    def redraw(self):
-        mode = self.mode_combo.currentText()
-        vmin, vmax = self.get_vmin_vmax()
-
-        self.fig.clf()
-
-        if mode == "Single shot":
-            ax = self.fig.add_subplot(111)
-            idx = self.shot_spin.value()
-            img = self.images[idx]
-            im = ax.imshow(img, vmin=vmin, vmax=vmax,
-                           origin="lower", aspect="auto")
-            ax.set_title(f"Shot {idx}")
-            self.fig.colorbar(im, ax=ax)
-
-        elif mode == "Grid (all shots)":
-            ncols = min(4, self.n_shot)
-            nrows = int(np.ceil(self.n_shot / ncols))
-            axes = []
-            for i in range(self.n_shot):
-                ax = self.fig.add_subplot(nrows, ncols, i + 1)
-                axes.append(ax)
-                img = self.images[i]
-                im = ax.imshow(img, vmin=vmin, vmax=vmax,
-                               origin="lower", aspect="auto")
-                ax.set_title(f"{i}")
-                ax.axis("off")
-
-            # share one colorbar
-            if axes:
-                self.fig.colorbar(im, ax=axes, fraction=0.02, pad=0.01)
-
-        elif mode == "Overlay first N":
-            ax = self.fig.add_subplot(111)
-            N = self.overlay_spin.value()
-            N = max(1, min(N, self.n_shot))
-            img_overlay = np.mean(self.images[:N], axis=0)  # change to sum/max if you like
-
-            im = ax.imshow(img_overlay, vmin=vmin, vmax=vmax,
-                           origin="lower", aspect="auto")
-            ax.set_title(f"Overlay of first {N} shots (mean)")
-            self.fig.colorbar(im, ax=ax)
-
-        self.fig.tight_layout()
-        self.canvas.draw_idle()
+from matplotlib.widgets import Slider
 
 
-def launch_image_viewer(images):
+def image_viewer_simple(
+    images,
+    x_axis=None,
+    y_axis=None,
+    mode="single",      # 'single', 'all', 'overlap', 'average'
+    cmap="viridis",
+    title=None,
+    max_per_fig=24,     # only used in 'all'
+):
     """
-    Convenience function to launch viewer from Spyder.
-
-    Example:
-        import image_viewer as iv
-        iv.launch_image_viewer(images)
-    """
-    app = QtWidgets.QApplication.instance()
-    app_created = False
-
-    if app is None:
-        app = QtWidgets.QApplication(sys.argv)
-        app_created = True
-
-    viewer = ImageViewer(images)
-    viewer.show()
-
-    if app_created:
-        app.exec_()
-
-    return viewer
-#%%
-class ICTViewer(QMainWindow):
-    """
-    ICT waveform viewer with scale + pan controls.
+    Matplotlib beam image viewer (no colorbar, fixed clean layout).
 
     Parameters
     ----------
-    ict_dict : dict
-        Keys: channel names (e.g. 'Ch1_wfm', 'Ch2_wfm', ...)
-        Values: for each key, either
-            - list of 1D numpy arrays, one per shot, OR
-            - numpy array of shape (n_shot, n_samples)
-    sec_per_div : float
-        Horizontal scale in seconds/div (e.g. 200e-9 for 200 ns/div).
-        Total time window = 10 * sec_per_div.
+    images : array
+        (X, Y) or (Nshot, X, Y)
+    x_axis, y_axis : 1D arrays or None
+        Optional physical axes (used as extent); if None, pixels.
+    mode : {'single','all','overlap','average'}
+    cmap : str
+    title : str or None
+    max_per_fig : int
+        For 'all' mode, max number of shots per figure.
+
+    Returns
+    -------
+    mode in {'single','average','overlap'} : (fig, ax)
+    mode == 'all' : list of (fig, axes_array)
     """
-    def __init__(self, ict_dict, sec_per_div=200e-9, parent=None):
-        super().__init__(parent)
 
-        if not ict_dict:
-            raise ValueError("ict_dict is empty")
+    # --------------------------------------------------------
+    # normalize input
+    # --------------------------------------------------------
+    arr = np.asarray(images)
+    if arr.ndim == 2:
+        arr = arr[None, ...]   # -> (1, X, Y)
+    elif arr.ndim != 3:
+        raise ValueError("images must be (X,Y) or (Nshot,X,Y)")
 
-        # normalize channels -> arrays of shape (n_shot, n_samples)
-        self.channels = {}
-        first_key = list(ict_dict.keys())[0]
+    N, H, W = arr.shape
+    mode = mode.lower()
+    if mode not in ("single", "all", "overlap", "average"):
+        raise ValueError("mode must be one of 'single','all','overlap','average'")
 
-        def normalize_ch(data):
-            if isinstance(data, list):
-                return np.stack(data, axis=0)
-            arr = np.asarray(data)
-            if arr.ndim == 1:
-                return arr[None, :]
-            elif arr.ndim == 2:
-                return arr
-            else:
-                raise ValueError("Channel data must be list of 1D arrays or 2D array")
+    # extent if axes provided
+    use_extent = False
+    extent = None
+    if x_axis is not None and y_axis is not None:
+        x = np.asarray(x_axis)
+        y = np.asarray(y_axis)
+        if x.ndim != 1 or y.ndim != 1:
+            raise ValueError("x_axis and y_axis must be 1D arrays")
+        if len(x) != W or len(y) != H:
+            raise ValueError("x_axis length must match width, y_axis length must match height")
+        extent = [x[0], x[-1], y[-1], y[0]]  # origin='upper'
+        use_extent = True
 
-        ref = normalize_ch(ict_dict[first_key])
-        self.n_shot, self.n_samples = ref.shape
-        self.channels[first_key] = ref
+    # global vmin/vmax
+    data_min = float(np.nanmin(arr))
+    data_max = float(np.nanmax(arr))
+    if not np.isfinite(data_min) or not np.isfinite(data_max):
+        data_min, data_max = 0.0, 1.0
 
-        for k, v in ict_dict.items():
-            if k == first_key:
-                continue
-            arr = normalize_ch(v)
-            if arr.shape != ref.shape:
-                raise ValueError(f"Channel {k} shape {arr.shape} "
-                                 f"does not match reference {ref.shape}")
-            self.channels[k] = arr
+    def _sanitize(vmin, vmax):
+        if vmin > vmax:
+            vmin, vmax = vmax, vmin
+        return vmin, vmax
 
-        self.ch_names = list(self.channels.keys())
+    # ------------------------------------------------------------------
+    # SINGLE / AVERAGE / OVERLAP  (one main axes + 3 slider rows)
+    # ------------------------------------------------------------------
+    if mode in ("single", "average", "overlap"):
+        from matplotlib.gridspec import GridSpec
 
-        # base horizontal scale (like your old ictBase)
-        self.sec_per_div_base = sec_per_div             # e.g. 200 ns/div
-        self.total_time = 10.0 * self.sec_per_div_base  # 10 divisions total
-        dt = self.total_time / self.n_samples
-        self.t = np.arange(self.n_samples) * dt         # seconds
-        self.t_us = self.t * 1e6                        # for plotting in µs
-        self.total_time_us = self.total_time * 1e6
-
-        # global amplitude range for ylim scaling
-        all_data = np.concatenate(
-            [ch.reshape(-1) for ch in self.channels.values()]
+        fig = plt.figure(figsize=(10, 7), dpi=100)
+        # 4 rows: [image] [shot slider] [vmin] [vmax]
+        gs = GridSpec(
+            nrows=5,
+            ncols=1,
+            height_ratios=[10, 3, 0.5, 0.5, 0.5],
+            hspace=0.1,
         )
-        self.y_abs_max = float(np.nanmax(np.abs(all_data)))
-        if self.y_abs_max == 0:
-            self.y_abs_max = 1.0
 
-        self.setWindowTitle("ICT Waveform Viewer")
+        ax_img = fig.add_subplot(gs[0, 0])
+        ax_idx = fig.add_subplot(gs[2, 0])
+        ax_vmin = fig.add_subplot(gs[3, 0])
+        ax_vmax = fig.add_subplot(gs[4, 0])
 
-        self._init_ui()
+        # clean slider axes (no ticks)
+        for ax_s in (ax_idx, ax_vmin, ax_vmax):
+            ax_s.tick_params(left=False, labelleft=False,
+                             bottom=False, labelbottom=False)
 
-    # --------------------- UI SETUP ---------------------
-    def _init_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-
-        main_layout = QVBoxLayout()
-        central.setLayout(main_layout)
-
-        # --- shot selection + overlay toggle ---
-        shot_layout = QHBoxLayout()
-        shot_label = QLabel("Shot:")
-        self.shot_spin = QSpinBox()
-        self.shot_spin.setRange(0, self.n_shot - 1)
-        self.shot_spin.setValue(0)
-        self.shot_spin.setPrefix(" ")
-
-        self.overlay_shots_cb = QCheckBox("Overlay all shots")
-        self.overlay_shots_cb.setChecked(False)
-
-        shot_layout.addWidget(shot_label)
-        shot_layout.addWidget(self.shot_spin)
-        shot_layout.addWidget(self.overlay_shots_cb)
-        shot_layout.addStretch()
-        main_layout.addLayout(shot_layout)
-
-        # --- channel checkboxes ---
-        ch_layout = QHBoxLayout()
-        ch_layout.addWidget(QLabel("Channels:"))
-        self.ch_checkboxes = []
-        for name in self.ch_names:
-            cb = QCheckBox(name)
-            cb.setChecked(True)
-            cb.stateChanged.connect(self.redraw)
-            self.ch_checkboxes.append(cb)
-            ch_layout.addWidget(cb)
-        ch_layout.addStretch()
-        main_layout.addLayout(ch_layout)
-
-        # --- X scale (width) ---
-        xw_layout = QHBoxLayout()
-        self.label_xw = QLabel("X width (divisions):")
-        self.slider_x_width = QSlider(QtCore.Qt.Horizontal)
-        self.slider_x_width.setRange(1, 10)      # 1 to 10 divisions visible
-        self.slider_x_width.setValue(10)         # start with full window
-
-        xw_layout.addWidget(self.label_xw)
-        xw_layout.addWidget(self.slider_x_width)
-        main_layout.addLayout(xw_layout)
-
-        # --- X pan ---
-        xp_layout = QHBoxLayout()
-        self.label_xp = QLabel("X pan:")
-        self.slider_x_pan = QSlider(QtCore.Qt.Horizontal)
-        self.slider_x_pan.setRange(0, 1000)      # 0..1 fraction over allowed pan range
-        self.slider_x_pan.setValue(0)            # start at left
-
-        xp_layout.addWidget(self.label_xp)
-        xp_layout.addWidget(self.slider_x_pan)
-        main_layout.addLayout(xp_layout)
-
-        # --- Y scale (half-height) ---
-        ys_layout = QHBoxLayout()
-        self.label_ys = QLabel("Y scale (×global max):")
-        self.slider_y_scale = QSlider(QtCore.Qt.Horizontal)
-        self.slider_y_scale.setRange(10, 500)    # 0.1x to 5x
-        self.slider_y_scale.setValue(100)        # 1x
-
-        ys_layout.addWidget(self.label_ys)
-        ys_layout.addWidget(self.slider_y_scale)
-        main_layout.addLayout(ys_layout)
-
-        # --- Y pan (center) ---
-        yp_layout = QHBoxLayout()
-        self.label_yp = QLabel("Y pan:")
-        self.slider_y_pan = QSlider(QtCore.Qt.Horizontal)
-        self.slider_y_pan.setRange(0, 1000)      # maps to -y_abs_max..+y_abs_max
-        self.slider_y_pan.setValue(500)          # center at 0
-
-        yp_layout.addWidget(self.label_yp)
-        yp_layout.addWidget(self.slider_y_pan)
-        main_layout.addLayout(yp_layout)
-
-        # --- matplotlib canvas ---
-        self.fig = Figure()
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvas(self.fig)
-        main_layout.addWidget(self.canvas)
-
-        # connect signals
-        self.shot_spin.valueChanged.connect(self.redraw)
-        self.slider_x_width.valueChanged.connect(self.redraw)
-        self.slider_x_pan.valueChanged.connect(self.redraw)
-        self.slider_y_scale.valueChanged.connect(self.redraw)
-        self.slider_y_pan.valueChanged.connect(self.redraw)
-        self.overlay_shots_cb.stateChanged.connect(self.redraw)
-
-        # initial draw
-        self.redraw()
-
-    # --------------------- DRAWING ----------------------
-    def redraw(self):
-        visible_div = self.slider_x_width.value()          # number of divisions visible (1..10)
-        time_window = visible_div * self.sec_per_div_base  # seconds
-        win_us = time_window * 1e6                         # µs
-
-        # X pan:
-        # allow window center to move from win_us/2 .. total_time_us - win_us/2
-        # if window >= total range, clamp to full range
-        if win_us >= self.total_time_us:
-            x_min_us = 0.0
-            x_max_us = self.total_time_us
+        if title is None:
+            fig.suptitle(f"Beam image viewer ({mode})")
         else:
-            frac = self.slider_x_pan.value() / 1000.0  # 0..1
-            x_center_min = win_us / 2.0
-            x_center_max = self.total_time_us - win_us / 2.0
-            x_center = x_center_min + frac * (x_center_max - x_center_min)
-            x_min_us = x_center - win_us / 2.0
-            x_max_us = x_center + win_us / 2.0
+            fig.suptitle(title)
 
-        # Y scale & pan:
-        amp_scale = self.slider_y_scale.value() / 100.0  # 0.1..5.0
-        y_half = amp_scale * self.y_abs_max
+        # base image
+        if mode == "average":
+            base_img = np.nanmean(arr.astype(np.float32), axis=0)
+        elif mode == "overlap":
+            base_img = np.nansum(arr.astype(np.float32), axis=0)
+        else:
+            base_img = arr[0].astype(np.float32)
 
-        frac_y = self.slider_y_pan.value() / 1000.0      # 0..1
-        # map 0..1 → -y_abs_max..+y_abs_max
-        y_center = (2.0 * frac_y - 1.0) * self.y_abs_max
-        y_min = y_center - y_half
-        y_max = y_center + y_half
+        # global vmin/vmax was computed from arr above
+        # but for overlap we should use the summed image range
+        if mode == "overlap":
+            data_min = float(np.nanmin(base_img))
+            data_max = float(np.nanmax(base_img))
+            if not np.isfinite(data_min) or not np.isfinite(data_max):
+                data_min, data_max = 0.0, 1.0
 
-        overlay_all = self.overlay_shots_cb.isChecked()
-        shot_idx = self.shot_spin.value()
+        im_kwargs = dict(
+            cmap=cmap,
+            origin="upper",
+            vmin=data_min,
+            vmax=data_max,
+        )
+        if use_extent:
+            im_kwargs["extent"] = extent
 
-        self.fig.clf()
-        ax = self.fig.add_subplot(111)
+        im = ax_img.imshow(base_img, **im_kwargs)
+        main_im_list = [im]
 
-        for cb, name in zip(self.ch_checkboxes, self.ch_names):
-            if not cb.isChecked():
-                continue
+        ax_img.set_xlabel("x (pixel)" if x_axis is None else "x")
+        ax_img.set_ylabel("y (pixel)" if y_axis is None else "y")
 
-            ch_data = self.channels[name]
+        # shot slider (only for single & N>1)
+        use_idx_slider = (mode == "single" and N > 1)
+        if use_idx_slider:
+            s_idx = Slider(
+                ax=ax_idx,
+                label="shot index",
+                valmin=0,
+                valmax=N - 1,
+                valinit=0,
+                valstep=1,
+            )
 
-            if overlay_all:
-                for i in range(self.n_shot):
-                    wf = ch_data[i]
-                    ax.plot(self.t_us, wf, alpha=0.3)
+            def _update_shot(_val):
+                idx = int(s_idx.val)
+                img = arr[idx]
+                main_im_list[0].set_data(img)
+                ax_img.set_title(f"Shot {idx}")
+                fig.canvas.draw_idle()
+
+            s_idx.on_changed(_update_shot)
+            ax_img.set_title("Shot 0")
+        else:
+            ax_idx.set_visible(False)
+            if mode == "average":
+                ax_img.set_title("Average over all shots")
+            elif mode == "overlap":
+                ax_img.set_title(f"Overlap of {N} shots")
+
+        # vmin / vmax sliders
+        s_vmin = Slider(ax=ax_vmin, label="vmin",
+                        valmin=data_min, valmax=data_max, valinit=data_min)
+        s_vmax = Slider(ax=ax_vmax, label="vmax",
+                        valmin=data_min, valmax=data_max, valinit=data_max)
+
+        def _update_clim(_):
+            vmin = s_vmin.val
+            vmax = s_vmax.val
+            vmin, vmax = _sanitize(vmin, vmax)
+            for im_obj in main_im_list:
+                im_obj.set_clim(vmin=vmin, vmax=vmax)
+            fig.canvas.draw_idle()
+
+        s_vmin.on_changed(_update_clim)
+        s_vmax.on_changed(_update_clim)
+
+        plt.show()
+        return fig, ax_img
+
+    # ------------------------------------------------------------------
+    # ALL  (HD-like 16×9, tight grid; sliders in dedicated bottom band)
+    # ------------------------------------------------------------------
+    if mode == "all":
+        from matplotlib.gridspec import GridSpec
+
+        figs = []
+        max_per_fig = int(max_per_fig) if max_per_fig > 0 else N
+        n_chunks = int(np.ceil(N / max_per_fig))
+
+        for chunk_idx in range(n_chunks):
+            start = chunk_idx * max_per_fig
+            stop = min((chunk_idx + 1) * max_per_fig, N)
+            arr_chunk = arr[start:stop]
+            n_local = arr_chunk.shape[0]
+
+            # decide grid (up to 6 columns; rest goes to rows)
+            ncols = min(6, n_local)
+            nrows = int(np.ceil(n_local / ncols))
+
+            fig = plt.figure(figsize=(16, 9), dpi=100)
+
+            # outer gridspec: images area + slider band
+            outer = GridSpec(
+                nrows=2,
+                ncols=1,
+                height_ratios=[10.0, 1.6],
+                hspace=0.3,
+            )
+            gs_imgs = outer[0].subgridspec(nrows, ncols, wspace=0.05, hspace=0.08)
+            gs_sliders = outer[1].subgridspec(2, 1, hspace=0.4)
+
+            if title is None:
+                fig.suptitle(f"Beam images (shots {start}–{stop-1})")
             else:
-                wf = ch_data[shot_idx]
-                ax.plot(self.t_us, wf, label=name)
+                fig.suptitle(f"{title} (shots {start}–{stop-1})")
 
-        ax.set_xlabel("Time (µs)")
-        ax.set_ylabel("Signal")
-        title = "ICT Waveforms"
-        if overlay_all:
-            title += " - All shots"
+            ims = []
+            axes = np.empty((nrows, ncols), dtype=object)
+
+            im_kwargs = dict(
+                cmap=cmap,
+                origin="upper",
+                vmin=data_min,
+                vmax=data_max,
+            )
+            if use_extent:
+                im_kwargs["extent"] = extent
+
+            for k in range(nrows * ncols):
+                ax = fig.add_subplot(gs_imgs[k // ncols, k % ncols])
+                axes[k // ncols, k % ncols] = ax
+                if k < n_local:
+                    img = arr_chunk[k]
+                    im = ax.imshow(img, **im_kwargs)
+                    ims.append(im)
+                    ax.set_title(str(start + k), fontsize=8)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                else:
+                    ax.axis("off")
+
+            # slider axes (no ticks)
+            ax_vmin = fig.add_subplot(gs_sliders[0, 0])
+            ax_vmax = fig.add_subplot(gs_sliders[1, 0])
+            for ax_s in (ax_vmin, ax_vmax):
+                ax_s.tick_params(left=False, labelleft=False,
+                                 bottom=False, labelbottom=False)
+
+            s_vmin = Slider(ax=ax_vmin, label="vmin",
+                            valmin=data_min, valmax=data_max, valinit=data_min)
+            s_vmax = Slider(ax=ax_vmax, label="vmax",
+                            valmin=data_min, valmax=data_max, valinit=data_max)
+
+            def _update_all(_,
+                            ims_local=ims,
+                            fig_local=fig,
+                            s_vmin_local=s_vmin,
+                            s_vmax_local=s_vmax):
+                vmin = s_vmin_local.val
+                vmax = s_vmax_local.val
+                vmin, vmax = _sanitize(vmin, vmax)
+                for im_obj in ims_local:
+                    im_obj.set_clim(vmin=vmin, vmax=vmax)
+                fig_local.canvas.draw_idle()
+
+            s_vmin.on_changed(_update_all)
+            s_vmax.on_changed(_update_all)
+
+            plt.show()
+            figs.append((fig, axes))
+
+        return figs
+
+
+#%%
+def _make_time_base(n_samples, ns_per_div=None, sec_per_div=None):
+    """
+    Build time base for ICT waveforms.
+
+    If ns_per_div or sec_per_div is given, assume 10 divisions and
+    center at t = 0, i.e., span = 10 * sec_per_div, from -5*span/div to +5*span/div.
+    Otherwise, just return index.
+    """
+    if sec_per_div is None and ns_per_div is not None:
+        sec_per_div = ns_per_div * 1e-9
+
+    if sec_per_div is None:
+        t = np.arange(n_samples)
+        label = "sample index"
+        return t, label
+
+    total_span = 10.0 * sec_per_div        # 10 divisions across screen
+    t = np.linspace(-0.5 * total_span, 0.5 * total_span, n_samples)
+    # use ns on axis
+    return t * 1e-9, "time (ns)"
+
+def ict_viewer(
+    traces,
+    ns_per_div=200,
+    sec_per_div=None,
+    mode="single",      # 'single', 'all', 'overlap', 'average'
+    title=None,
+):
+    """
+    ICT waveform viewer using Matplotlib.
+
+    Parameters
+    ----------
+    traces : np.ndarray
+        Shape (Nshot, Nsample) or (Nsample,).
+    ns_per_div, sec_per_div : float or None
+        Time scale of the scope. If provided, a 10-division window
+        is assumed and time base is centered at t=0.
+        If both are None, x-axis is just sample index.
+    mode : {'single','all','overlap','average'}
+    title : str or None
+
+    Returns
+    -------
+    For mode in {'single','overlap','average'}:
+        fig, ax
+    For mode == 'all':
+        list of (fig, axes_array)
+    """
+
+    # ------------- normalize traces -------------
+    arr = np.asarray(traces)
+    if arr.ndim == 1:
+        arr = arr[None, :]    # (1, Nsample)
+    elif arr.ndim != 2:
+        raise ValueError("traces must be (Nsample,) or (Nshot, Nsample)")
+
+    Nshot, Nsample = arr.shape
+    mode = mode.lower()
+    if mode not in ("single", "all", "overlap", "average"):
+        raise ValueError("mode must be one of 'single','all','overlap','average'")
+
+    # ------------- time base -------------
+    t, xlabel = _make_time_base(Nsample, ns_per_div=ns_per_div, sec_per_div=sec_per_div)
+
+    # ------------- global y-range -------------
+    y_min = float(np.nanmin(arr))
+    y_max = float(np.nanmax(arr))
+    if not np.isfinite(y_min) or not np.isfinite(y_max):
+        y_min, y_max = -1.0, 1.0
+
+    # =================================================================
+    # SINGLE
+    # =================================================================
+    if mode == "single":
+        # 5-row gridspec: [title (implicit)] [plot] [xlabel spacer] [slider row]
+        from matplotlib.gridspec import GridSpec
+
+        fig = plt.figure(figsize=(10, 6), dpi=100)
+        gs = GridSpec(
+            nrows=4,
+            ncols=1,
+            height_ratios=[8.0, 0.8, 0.2, 0.7],  # plot, spacer, (for xlabel space), slider
+            hspace=0.15,
+        )
+
+        ax = fig.add_subplot(gs[0, 0])
+        ax_spacer = fig.add_subplot(gs[1, 0])
+        ax_slider = fig.add_subplot(gs[3, 0])
+
+        ax_spacer.axis("off")  # dummy row purely to keep xlabel away from slider
+        ax_slider.tick_params(left=False, labelleft=False,
+                              bottom=False, labelbottom=False)
+
+        if title is None:
+            fig.suptitle("ICT viewer (single)")
         else:
-            title += f" - Shot {shot_idx}"
-        ax.set_title(title)
+            fig.suptitle(title)
 
-        ax.grid(True, alpha=0.3)
-
-        ax.set_xlim(x_min_us, x_max_us)
+        # initial shot
+        line, = ax.plot(t, arr[0], lw=1.0)
+        ax.set_xlim(t[0], t[-1])
         ax.set_ylim(y_min, y_max)
+        ax.set_ylabel("signal (a.u.)")
+        ax.set_xlabel(xlabel)
+        ax.set_title("Shot 0")
 
-        if not overlay_all:
-            ax.legend(loc="best")
+        # shot index slider (if multiple shots)
+        if Nshot > 1:
+            s_idx = Slider(
+                ax=ax_slider,
+                label="shot index",
+                valmin=0,
+                valmax=Nshot - 1,
+                valinit=0,
+                valstep=1,
+            )
 
-        self.fig.tight_layout()
-        self.canvas.draw_idle()
+            def _update_shot(_):
+                idx = int(s_idx.val)
+                line.set_ydata(arr[idx])
+                ax.set_title(f"Shot {idx}")
+                fig.canvas.draw_idle()
 
+            s_idx.on_changed(_update_shot)
+        else:
+            # no slider needed
+            ax_slider.set_visible(False)
 
-def launch_ict_viewer(ict_dict, sec_per_div=200e-9):
-    """
-    Convenience function to launch the ICT viewer.
+        plt.show()
+        return fig, ax
 
-    Example:
-        ict_dict = {
-            'Ch1_wfm': dat[0]['Ch1_wfm'],
-            'Ch2_wfm': dat[0]['Ch2_wfm'],
-        }
-        launch_ict_viewer(ict_dict, sec_per_div=200e-9)
-    """
-    app = QtWidgets.QApplication.instance()
-    app_created = False
-    if app is None:
-        app = QtWidgets.QApplication(sys.argv)
-        app_created = True
+    # =================================================================
+    # OVERLAP
+    # =================================================================
+    if mode == "overlap":
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
+        if title is None:
+            fig.suptitle("ICT viewer (sum of shots)")
+        else:
+            fig.suptitle(title)
 
-    viewer = ICTViewer(ict_dict, sec_per_div=sec_per_div)
-    viewer.show()
+        summed = np.nansum(arr, axis=0)       # <-- point-wise sum
+        ax.plot(t, summed, lw=1.2)
 
-    if app_created:
-        app.exec_()
+        y_min_s = float(np.nanmin(summed))
+        y_max_s = float(np.nanmax(summed))
+        if not np.isfinite(y_min_s) or not np.isfinite(y_max_s):
+            y_min_s, y_max_s = -1.0, 1.0
 
-    return viewer
+        ax.set_xlim(t[0], t[-1])
+        ax.set_ylim(y_min_s, y_max_s)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("sum signal (a.u.)")
+        ax.set_title(f"Sum over {Nshot} shots")
+
+        plt.show()
+        return fig, ax
+
+    # =================================================================
+    # AVERAGE
+    # =================================================================
+    if mode == "average":
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
+        if title is None:
+            fig.suptitle("ICT viewer (average)")
+        else:
+            fig.suptitle(title)
+
+        avg = np.nanmean(arr, axis=0)
+        ax.plot(t, avg, lw=1.2)
+
+        ax.set_xlim(t[0], t[-1])
+        ax.set_ylim(y_min, y_max)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("signal (a.u.)")
+        ax.set_title("Average over all shots")
+
+        plt.show()
+        return fig, ax
+
+    # =================================================================
+    # ALL : grid of subplots (no slider)
+    # =================================================================
+    if mode == "all":
+        figs = []
+
+        max_per_fig = 24  # or expose as argument if you like
+        max_per_fig = int(max_per_fig) if max_per_fig > 0 else Nshot
+        n_chunks = int(np.ceil(Nshot / max_per_fig))
+
+        from matplotlib.gridspec import GridSpec
+
+        for chunk_idx in range(n_chunks):
+            start = chunk_idx * max_per_fig
+            stop = min((chunk_idx + 1) * max_per_fig, Nshot)
+            arr_chunk = arr[start:stop]
+            n_local = arr_chunk.shape[0]
+
+            # up to 6 columns, rest into rows
+            ncols = min(6, n_local)
+            nrows = int(np.ceil(n_local / ncols))
+
+            fig = plt.figure(figsize=(16, 9), dpi=100)
+            outer = GridSpec(
+                nrows=2,
+                ncols=1,
+                height_ratios=[9.0, 1.0],   # plots + bottom band (for xlabel space)
+                hspace=0.25,
+            )
+            gs_plots = outer[0].subgridspec(nrows, ncols, wspace=0.15, hspace=0.25)
+            ax_bottom = fig.add_subplot(outer[1, 0])  # dummy for shared xlabel
+
+            ax_bottom.axis("off")
+
+            if title is None:
+                fig.suptitle(f"ICT viewer (shots {start}–{stop-1})")
+            else:
+                fig.suptitle(f"{title} (shots {start}–{stop-1})")
+
+            axes = np.empty((nrows, ncols), dtype=object)
+
+            for k in range(nrows * ncols):
+                ax = fig.add_subplot(gs_plots[k // ncols, k % ncols])
+                axes[k // ncols, k % ncols] = ax
+
+                if k < n_local:
+                    idx = start + k
+                    ax.plot(t, arr_chunk[k], lw=0.8)
+                    ax.set_xlim(t[0], t[-1])
+                    ax.set_ylim(y_min, y_max)
+                    ax.set_title(str(idx), fontsize=8)
+
+                    # remove axis labels, keep only light ticks if you want
+                    ax.set_xlabel("")
+                    ax.set_ylabel("")
+                    # if you also want NO ticks at all, uncomment:
+                    # ax.set_xticks([])
+                    # ax.set_yticks([])
+
+                else:
+                    ax.axis("off")
+
+            plt.show()
+            figs.append((fig, axes))
+
+        return figs
