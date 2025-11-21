@@ -41,7 +41,7 @@ This module includes all image or ict wave form viewers
 >  &nbsp;&nbsp;&nbsp;&nbsp;images: numpy array with the dimension of (N-shots, X, Y)  
 >  &nbsp;&nbsp;&nbsp;&nbsp;x(y)_axis: x- and y-axis array. If None, just use pixel numbers  
 >  &nbsp;&nbsp;&nbsp;&nbsp;mode:  
->    - single: shows one image. You can still load entire image and use slider to see other shots.
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - single: shows one image. You can still load entire image and use slider to see other shots.
 >    - all: shows entire shots using small subplots
 >    - overlap: shows one added up image
 >    - average: shows one averaged image  
