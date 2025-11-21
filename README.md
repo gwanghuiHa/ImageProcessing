@@ -83,3 +83,18 @@ This module includes various tools to process the image or ict signal
 > **Output**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;rotated: rotated images.  
 
+> **ellipse_info = ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)**    
+> &nbsp;&nbsp;&nbsp;&nbsp;manually drawing ellipse to on the canvas. You must open any type of canvas and provide its axes info.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;ax: pyplot figure's axis info.  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;ellipse_info: dictionary including center_x, center_y, width, and height of ellipse.  
+
+> **cal,fiducial = conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   using ellipse info update calibration factor and fiducial  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    yag: size of the yag in meter  
+> &nbsp;&nbsp;&nbsp;&nbsp;    ellipse_info: ellipse dictionary. if it is None, the fuction will try to get ellipse_info from session_state.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    overwrite: if this is False, then the function will try to get info from sesson_state. Otherwise, it update the session_state.  
+
+

@@ -27,7 +27,7 @@ if is_rot_ok==False:  # check image and determine the angle
 else:                 # rotate all image data
     N = len(dat)
     for i in range(N):
-        dat[i]['image'] = Processing.GH_tools.rotate_all_image(dat[i]['image'], angle)
+        dat[i]['image'] = Processing.GH_tools.rotate_all_image(dat[i]['image'], angle, overwrite=True)
 #%% Calibration
 
 ellipse_info = Processing.GH_tools.ellipse_manual(ax= ax, line_color= "orange", line_style= "--", line_width= 1.5)

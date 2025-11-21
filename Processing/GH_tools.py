@@ -9,7 +9,16 @@ rotate_all_image(img, angle_deg=None,overwrite=True)
     angle_deg: rotation angle in deg. if this is None or [], it load data from session_state.
     overwrite: if this is true, angle used in this function will be uploaded to the session_state.
 
+ellipse_info = ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)    
+    manually drawing ellipse to on the canvas. You must open any type of canvas and provide its axes info.  
+    ax: pyplot figure's axis info.  
+    ellipse_info: dictionary including center_x, center_y, width, and height of ellipse.  
 
+conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
+    using ellipse info update calibration factor and fiducial
+    yag: size of the yag in meter
+    ellipse_info: ellipse dictionary. if it is None, the fuction will try to get ellipse_info from session_state.
+    overwrite: if this is False, then the function will try to get info from sesson_state. Otherwise, it update the session_state.
 """
 from . import session_state
 #%% rotations
@@ -55,7 +64,7 @@ def rotate_all_image(imgs, angle_deg=None, overwrite=True):
         rotated[i] = rotate_one_image(imgs[i],angle)
     
     return rotated
-#%% Calibration
+#%% Drawing
 from matplotlib import pyplot as plt
 from matplotlib.widgets import EllipseSelector
 from matplotlib.patches import Ellipse
@@ -168,8 +177,27 @@ def ellipse_manual(
     session_state.processing_info["ellipse_info"] = info
 
     return info
+#%% Calibration
 
-
+def conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True):
+    """
+    From ellipse information, obtain pixel-to-m conversion factor.
+    """
+    if overwrite == False:
+        cal = session_state.processing_info.get("calibration", None)
+        fiducial = session_state.processing_info.get("fiducial", None)
+        if (cal is None) or (fiducial is None):
+            raise ValueError("If you don't want to overwrite anything, calibration and fiducial information must exist, but it doesn't.")
+    else:
+        if ellipse_info is None:
+            ellipse_info = session_state.processing_info.get("ellipse_info", None)
+            if ellipse_info is None:
+                raise ValueError("No ellipse information is provided.")
+        cal = {"cal_x": yag/ellipse_info['width'], "cal_y": yag/ellipse_info['height'] }
+        fiducial = {"center_x": ellipse_info['center_x'],"center_y": ellipse_info['center_y']}
+        session_state.processing_info["calibration"] = cal
+        session_state.processing_info["fiducial"] = fiducial
+    return cal, fiducial
 
 
 
