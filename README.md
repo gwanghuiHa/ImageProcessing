@@ -66,19 +66,20 @@ This module includes all image or ict wave form viewers
 This module includes various tools to process the image or ict signal  
 
 #### GH_tools: processing tools that GH usually uses - GH
-> **rotated = rotate_one_image(img, angle_deg)**  
+> **rotated = rotate_one_image(img, angle_deg=None)**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;rotate single image  
 > **Input**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;img: original image array.  
->   &nbsp;&nbsp;&nbsp;&nbsp;angle_deg: rotation angle in deg.  
+>   &nbsp;&nbsp;&nbsp;&nbsp;angle_deg: rotation angle in deg. if this is None or [], it load data from session_state.  
 > **Output**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;rotated: rotated image.  
 
-> **rotated = rotate_all_image(img, angle_deg)**  
+> **rotated = rotate_all_image(img, angle_deg=None, overwrite=True)**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;rotate all provided images.  
 > **Input**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;img: original image array including N-shots (Nshot, X,Y).  
->   &nbsp;&nbsp;&nbsp;&nbsp;angle_deg: rotation angle in deg.  
+>   &nbsp;&nbsp;&nbsp;&nbsp;angle_deg: rotation angle in deg. if this is None or [], it load data from session_state.  
+>   &nbsp;&nbsp;&nbsp;&nbsp;overwrite: if this is true, angle used in this function will be uploaded to the session_state.  
 > **Output**  
 >   &nbsp;&nbsp;&nbsp;&nbsp;rotated: rotated images.  
 

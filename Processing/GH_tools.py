@@ -3,110 +3,101 @@ Collection of script that GH may use for processing
 
 @author: Gwanghui
 
-rotate_one_image(img, angle_deg)
-rotate_all_image(img, angle_deg)
+rotate_one_image(img, angle_deg=None)
+rotate_all_image(img, angle_deg=None,overwrite=True)
     img: original image array
-    angle_deg: rotation angle in deg
+    angle_deg: rotation angle in deg. if this is None or [], it load data from session_state.
+    overwrite: if this is true, angle used in this function will be uploaded to the session_state.
 
 
 """
+from . import session_state
 #%% rotations
 from scipy.ndimage import rotate
 import numpy as np
 
-def rotate_one_image(img, angle_deg):
+def rotate_one_image(img, angle_deg=None):
     """
     Rotate an image without cropping (expands output canvas to fit entire result).
     Positive angle = counter-clockwise.
     """
-    rotated = rotate(img, angle_deg, reshape=True, mode='constant', cval=0)
+    if angle_deg is None or angle_deg == []:
+        angle = session_state.processing_info.get("rotation_angle", None)
+        if angle is None:
+            raise ValueError("No rotation_angle stored in processing_info and no angle_deg provided.")
+    else:
+        angle = float(angle_deg)
+            
+    rotated = rotate(img, angle, reshape=True, mode='constant', cval=0)
     return rotated
-def rotate_all_image(imgs, angle_deg):
+def rotate_all_image(imgs, angle_deg=None, overwrite=True):
     """
     Rotate an image without cropping (expands output canvas to fit entire result).
     Positive angle = counter-clockwise.
     imgs needs to be (Nshot, X, Y)
     """
+    if angle_deg is None or angle_deg == []:
+        angle = session_state.processing_info.get("rotation_angle", None)
+        if angle is None:
+            raise ValueError("No rotation_angle stored in processing_info and no angle_deg provided.")
+    else:
+        angle = float(angle_deg)
+        if overwrite or session_state.processing_info.get("rotation_angle") is None:
+            session_state.processing_info["rotation_angle"] = angle
+            
     N_img = imgs.shape[0]
-    temp = rotate_one_image(imgs[0],angle_deg)
+    temp = rotate_one_image(imgs[0],angle)
     out_shape = (N_img,) + temp.shape
     rotated = np.empty(out_shape,dtype=imgs.dtype)
     
     rotated[0] = temp
     for i in range(1,N_img):
-        rotated[i] = rotate_one_image(imgs[i],angle_deg)
+        rotated[i] = rotate_one_image(imgs[i],angle)
     
     return rotated
 #%% Calibration
-import numpy as np
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
 from matplotlib.widgets import EllipseSelector
 from matplotlib.patches import Ellipse
-from matplotlib.widgets import RectangleSelector
-from matplotlib.patches import Rectangle
-from skimage import filters, exposure, feature, transform, measure, morphology, util
 
-def get_ellipse_from_image(
-    image: np.ndarray,
-    line_color: str = "orange",
-    line_style: str = "--",   # ":" dotted, "--" dashed, "-" solid
-    line_width: float = 1.5,
-    cmap: str = "gray",
-    pad_frac: float = 0.12,
-    vmin: float | None = None,
-    vmax: float | None = None,
+def ellipse_manual(
+    ax,
+    line_color="orange",
+    line_style="--",
+    line_width=1.5,
 ):
     """
-    Draw/adjust an ellipse. Press ENTER to capture and RETURN its parameters.
-    The figure stays open; you can keep working or close it later.
+    Interactive ellipse selector using ONE global ellipse entry.
 
-    Parameters
-    ----------
-    image : np.ndarray
-        2D or 3D image array.
-    vmin, vmax : float, optional
-        Intensity limits for display (passed to imshow).
-
-    Returns
-    -------
-    dict
-        {"center_x","center_y","width","height","angle_deg"} or None if nothing drawn.
+    Behavior:
+      - Loads previous ellipse from session_state.processing_info["ellipse_info"]
+      - After ENTER: overwrites session_state.processing_info["ellipse_info"]
+      - Returns the new ellipse dict (or None if nothing valid)
     """
-    if image.ndim not in (2, 3):
-        raise ValueError("image must be 2D (H,W) or 3D (H,W,C)")
+    if ax is None:
+        print("[WARNING] No axes provided.")
+        return None
 
-    # Make sure toolbar isn't in pan/zoom mode
+    fig = ax.figure
+
+    # avoid tight_layout warning
     try:
-        tb = plt.get_current_fig_manager().toolbar
+        fig.set_tight_layout(False)
+    except Exception:
+        pass
+
+    # previous ellipse (if any)
+    prev = session_state.processing_info.get("ellipse_info", None)
+
+    # make sure toolbar is not in pan/zoom mode
+    try:
+        tb = fig.canvas.manager.toolbar
         if tb is not None:
             tb.mode = ""
     except Exception:
         pass
 
-    H, W = image.shape[:2]
-    pad = float(pad_frac) * max(H, W)
-
-    fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
-    try:
-        fig.canvas.manager.set_window_title("Interactive Ellipse")
-    except Exception:
-        pass
-
-    # -------- Display image with vmin/vmax --------
-    ax.imshow(
-        image,
-        cmap=(cmap if image.ndim == 2 else None),
-        origin="upper",
-        vmin=vmin,
-        vmax=vmax
-    )
-
-    ax.set_aspect("equal")
-    ax.set_title("Drag to draw/adjust ellipse. Press ENTER to capture (window stays open).")
-    ax.set_xlabel("x (pixels)")
-    ax.set_ylabel("y (pixels)")
-    ax.set_xlim(-pad, W + pad)
-    ax.set_ylim(H + pad, -pad)
+    ax.set_title("Draw/adjust ellipse, then press ENTER to capture.")
 
     selector = EllipseSelector(
         ax,
@@ -121,69 +112,64 @@ def get_ellipse_from_image(
     )
     selector.set_active(True)
 
-    def _read_current_ellipse():
+    # --- preload previous ellipse, if it exists ---
+    if prev is not None:
         try:
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-        except Exception:
-            pass
-
-        for attr in ("_selection_artist", "_shape_artist", "to_draw"):
-            artist = getattr(selector, attr, None)
-            if isinstance(artist, Ellipse):
-                cx, cy = artist.center
-                w = float(getattr(artist, "width", 0.0))
-                h = float(getattr(artist, "height", 0.0))
-                ang_deg = float(getattr(artist, "angle", 0.0))
-                if w > 1e-6 and h > 1e-6:
-                    return float(cx), float(cy), w, h, ang_deg
-
-        try:
-            x1, x2, y1, y2 = selector.extents
-            w = float(abs(x2 - x1))
-            h = float(abs(y2 - y1))
+            cx = float(prev["center_x"])
+            cy = float(prev["center_y"])
+            w  = float(prev["width"])
+            h  = float(prev["height"])
             if w > 1e-6 and h > 1e-6:
-                cx = float(0.5 * (x1 + x2))
-                cy = float(0.5 * (y1 + y2))
-                ang = getattr(selector, "angle", 0.0)
-                ang_deg = float(np.degrees(ang))
-                return cx, cy, w, h, ang_deg
-        except Exception:
-            pass
+                x1 = cx - 0.5 * w
+                x2 = cx + 0.5 * w
+                y1 = cy - 0.5 * h
+                y2 = cy + 0.5 * h
+                selector.extents = (x1, x2, y1, y2)
+                fig.canvas.draw_idle()
+        except Exception as e:
+            print(f"[ellipse_manual] Could not apply previous ellipse: {e}")
+
+    # --- helper to read the current ellipse from the selector ---
+    def _read_current():
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        for attr in ("_selection_artist", "_shape_artist", "to_draw"):
+            obj = getattr(selector, attr, None)
+            if isinstance(obj, Ellipse):
+                cx, cy = obj.center
+                w = obj.width
+                h = obj.height
+                if w > 1e-6 and h > 1e-6:
+                    return {
+                        "center_x": float(cx),
+                        "center_y": float(cy),
+                        "width": float(w),
+                        "height": float(h),
+                    }
         return None
 
-    result_container = {"value": None}
+    result = {"value": None}
 
     def _on_key(event):
         if event.key in ("enter", "return"):
-            got = _read_current_ellipse()
-            if got is None:
-                result_container["value"] = None
-            else:
-                cx, cy, w, h, ang_deg = got
-                result_container["value"] = {
-                    "center_x": cx,
-                    "center_y": cy,
-                    "width": w,
-                    "height": h,
-                    "angle_deg": ang_deg,
-                }
+            result["value"] = _read_current()
             try:
                 fig.canvas.stop_event_loop()
             except Exception:
                 pass
 
     cid = fig.canvas.mpl_connect("key_press_event", _on_key)
+    fig.canvas.start_event_loop(timeout=-1)
+    fig.canvas.mpl_disconnect(cid)
 
-    plt.show(block=False)
-    try:
-        fig.canvas.start_event_loop(timeout=-1)
-    except Exception:
-        plt.waitforbuttonpress(timeout=-1)
+    info = result["value"]
 
-    try:
-        fig.canvas.mpl_disconnect(cid)
-    except Exception:
-        pass
+    # ⬅️ save to your global processing_info
+    session_state.processing_info["ellipse_info"] = info
 
-    return result_container["value"]
+    return info
+
+
+
+
+

@@ -17,14 +17,6 @@ Viewer.Viewers.image_viewer_simple(dat[1]['image'],x_axis=None,y_axis=None,mode=
 Viewer.Viewers.ict_viewer(dat[1]['Ch1_wfm'], ns_per_div=200, mode="overlap", title=None)
 
 #%% Angle correction
-"""
-Processing.GH_tools.rotate_one_image(img, angle_deg)
-    it rotates one image
-    img: original image array
-    angle_deg: rotation angle in deg. + counter-clock.
-Processing.GH_tools.rotate_all_image(img, angle_deg)
-    it rotates all images. img should be (Nshot, X, Y)
-"""
 angle = 45
 is_rot_ok = False
 img_to_check = dat[0]['image'][0]
@@ -37,13 +29,6 @@ else:                 # rotate all image data
     for i in range(N):
         dat[i]['image'] = Processing.GH_tools.rotate_all_image(dat[i]['image'], angle)
 #%% Calibration
-"""
-Processing.GH_tools.rotate_one_image(img, angle_deg)
-    it rotates one image
-    img: original image array
-    angle_deg: rotation angle in deg. + counter-clock.
-Processing.GH_tools.rotate_all_image(img, angle_deg)
-    it rotates all images. img should be (Nshot, X, Y)
-"""
 
+ellipse_info = Processing.GH_tools.ellipse_manual(ax= ax, line_color= "orange", line_style= "--", line_width= 1.5)
 
