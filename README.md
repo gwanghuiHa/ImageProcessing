@@ -41,11 +41,11 @@ This module includes all image or ict wave form viewers
 >  &nbsp;&nbsp;&nbsp;&nbsp;images: numpy array with the dimension of (N-shots, X, Y)  
 >  &nbsp;&nbsp;&nbsp;&nbsp;x(y)_axis: x- and y-axis array. If None, just use pixel numbers  
 >  &nbsp;&nbsp;&nbsp;&nbsp;mode:  
->  &nbsp;&nbsp;&nbsp;&nbsp;  - single: shows one image. You can still load entire image and use slider to see other shots.
->  &nbsp;&nbsp;&nbsp;&nbsp;  - all: shows entire shots using small subplots
->  &nbsp;&nbsp;&nbsp;&nbsp;  - overlap: shows one added up image
->  &nbsp;&nbsp;&nbsp;&nbsp;  - average: shows one averaged image  
->
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - single: shows one image. You can still load entire image and use slider to see other shots.  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - all: shows entire shots using small subplots  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - overlap: shows one added up image  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - average: shows one averaged image    
+>  
 >  **Output**  
 >  &nbsp;&nbsp;&nbsp;&nbsp;fig,ax: figure and axis info for later control  
 
@@ -54,10 +54,10 @@ This module includes all image or ict wave form viewers
 >  &nbsp;&nbsp;&nbsp;&nbsp;ict_wfm: list including ict waveforms for each shot  
 >  &nbsp;&nbsp;&nbsp;&nbsp;ns_per_div: scope scale  
 >  &nbsp;&nbsp;&nbsp;&nbsp;mode:  
->  &nbsp;&nbsp;&nbsp;&nbsp;  - single: shows one wave form. You can still load entire waveforms and use slider to see other shots.
->  &nbsp;&nbsp;&nbsp;&nbsp;  - all: shows entire shots using small subplots
->  &nbsp;&nbsp;&nbsp;&nbsp;  - overlap: shows one added up waveform
->  &nbsp;&nbsp;&nbsp;&nbsp;  - average: shows one averaged waveform  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - single: shows one wave form. You can still load entire waveforms and use slider to see other shots.  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - all: shows entire shots using small subplots  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - overlap: shows one added up waveform  
+>  &nbsp;&nbsp;&nbsp;&nbsp;  - average: shows one averaged waveform   
 >
 >  **Output**  
 >  &nbsp;&nbsp;&nbsp;&nbsp;fig,ax: figure and axis info for later control  
