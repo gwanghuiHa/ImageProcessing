@@ -17,8 +17,9 @@ Mainscript
 ├──Processing
 │  └──GH_tools
 │     ├──rotate_one_image(img, angle_deg)
-│     └──rotate_all_image(img, angle_deg)
-
+│     ├──rotate_all_image(img, angle_deg)
+│     ├──ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
+│     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
 ```
 ## Documentation
 ### LoadDat
@@ -89,6 +90,13 @@ This module includes various tools to process the image or ict signal
 > &nbsp;&nbsp;&nbsp;&nbsp;ax: pyplot figure's axis info.  
 > **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp;ellipse_info: dictionary including center_x, center_y, width, and height of ellipse.  
+
+> **rect_info = rectangle_manual(ax= ax, line_color="orange", line_style="--", line_width=1.5)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   manually drawing rectangle to on the canvas. You must open any type of canvas and provide its axes info.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    ax: pyplot figure's axis info.    
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    rect_info: dictionary including center_x, center_y, width, and height of rectangle.  
 
 > **cal,fiducial = conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)**  
 > &nbsp;&nbsp;&nbsp;&nbsp;   using ellipse info update calibration factor and fiducial  

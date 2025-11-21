@@ -29,6 +29,6 @@ else:                 # rotate all image data
     for i in range(N):
         dat[i]['image'] = Processing.GH_tools.rotate_all_image(dat[i]['image'], angle, overwrite=True)
 #%% Calibration
-
 ellipse_info = Processing.GH_tools.ellipse_manual(ax= ax, line_color= "orange", line_style= "--", line_width= 1.5)
-
+cal,fid = Processing.GH_tools.conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
+rect_info = Processing.GH_tools.rectangle_manual(ax= ax, line_color="orange", line_style="--", line_width=1.5)
