@@ -57,6 +57,7 @@ This module includes all image or ict wave form viewers
 >    - all: shows entire shots using small subplots
 >    - overlap: shows one added up waveform
 >    - average: shows one averaged waveform  
+>
 >  **Output**  
 >    fig,ax: figure and axis info for later control  
 
