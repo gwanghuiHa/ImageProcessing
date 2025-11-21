@@ -14,7 +14,11 @@ Mainscript
 │     ├──image_viewer_simple(images,x_axis=None,y_axis=None,mode="single",cmap="viridis",title=None)
 │     └──ict_viewer(ict_wfm, ns_per_div=200, mode="single", title=None)
 │
-│
+├──Processing
+│  └──GH_tools
+│     ├──rotate_one_image(img, angle_deg)
+│     └──rotate_all_image(img, angle_deg)
+
 ```
 ## Documentation
 ### LoadDat
@@ -40,7 +44,7 @@ This module includes all image or ict wave form viewers
 >    - single: shows one image. You can still load entire image and use slider to see other shots.
 >    - all: shows entire shots using small subplots
 >    - overlap: shows one added up image
->    - average: shows one averaged image
+>    - average: shows one averaged image\
 >  **Output**  
 >    fig,ax: figure and axis info for later control 
 
@@ -55,3 +59,24 @@ This module includes all image or ict wave form viewers
 >    - average: shows one averaged waveform
 >  **Output**  
 >    fig,ax: figure and axis info for later control 
+
+### Processing
+This module includes various tools to process the image or ict signal
+
+#### GH_tools: processing tools that GH usually uses - GH
+> **rotated = rotate_one_image(img, angle_deg)**
+>   rotate single image
+> **Input**
+>   img: original image array.
+>   angle_deg: rotation angle in deg
+> **Output**
+>   rotated: rotated image
+
+> **rotated = rotate_all_image(img, angle_deg)**
+>   rotate all provided images
+> **Input**
+>   img: original image array including N-shots (Nshot, X,Y).
+>   angle_deg: rotation angle in deg
+> **Output**
+>   rotated: rotated images
+
