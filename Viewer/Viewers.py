@@ -289,6 +289,281 @@ def image_viewer_simple(
 
         return figs
 
+from matplotlib.gridspec import GridSpec
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+def image_viewer_profiles_fft(
+    images,
+    x_axis=None,
+    y_axis=None,
+    mode="single",      # 'single', 'average', 'overlap'
+    cmap="viridis",
+    title=None,
+):
+    """
+    Beam image viewer with:
+      - threshold (lower-clip: values < thr -> 0)
+      - x/y projected profiles
+      - 2D FFT of the thresholded image (always visible, auto-updating)
+
+    Parameters
+    ----------
+    images : array
+        (X, Y) or (Nshot, X, Y)
+    x_axis, y_axis : 1D arrays or None
+        Optional physical axes. If None, pixel indices are used.
+    mode : {'single','average','overlap'}
+        'single'  : one shot with shot slider if N>1
+        'average' : average over all shots
+        'overlap' : sum over all shots
+    cmap : str
+    title : str or None
+
+    Returns
+    -------
+    fig, ax_img, ax_fft
+        Figure, main image axes, FFT axes.
+    """
+    # --------------- normalize input ---------------
+    arr = np.asarray(images)
+    if arr.ndim == 2:
+        arr = arr[None, ...]  # -> (1, X, Y)
+    elif arr.ndim != 3:
+        raise ValueError("images must be (X,Y) or (Nshot,X,Y)")
+
+    N, H, W = arr.shape
+    mode = mode.lower()
+    if mode not in ("single", "average", "overlap"):
+        raise ValueError("mode must be one of 'single','average','overlap'")
+
+    # extent if axes provided
+    use_extent = False
+    extent = None
+    if x_axis is not None and y_axis is not None:
+        x = np.asarray(x_axis)
+        y = np.asarray(y_axis)
+        if x.ndim != 1 or y.ndim != 1:
+            raise ValueError("x_axis and y_axis must be 1D arrays")
+        if len(x) != W or len(y) != H:
+            raise ValueError("x_axis length must match width, y_axis length must match height")
+        extent = [x[0], x[-1], y[-1], y[0]]  # origin='upper'
+        use_extent = True
+
+    # global vmin/vmax from raw array
+    data_min = float(np.nanmin(arr))
+    data_max = float(np.nanmax(arr))
+    if not np.isfinite(data_min) or not np.isfinite(data_max) or data_min == data_max:
+        data_min, data_max = 0.0, 1.0
+
+    def _sanitize(vmin, vmax):
+        if vmin > vmax:
+            vmin, vmax = vmax, vmin
+        return vmin, vmax
+
+    # --------------- figure + layout ---------------
+    fig = plt.figure(figsize=(10, 8), dpi=100)
+    # rows: [image+profiles] [FFT] [threshold] [shot slider] [vmin] [vmax]
+    gs = GridSpec(
+        nrows=6,
+        ncols=1,
+        height_ratios=[10, 5, 0.7, 0.7, 0.5, 0.5],
+        hspace=0.15,
+    )
+
+    ax_img  = fig.add_subplot(gs[0, 0])
+    ax_fft  = fig.add_subplot(gs[1, 0])
+    ax_thr  = fig.add_subplot(gs[2, 0])
+    ax_idx  = fig.add_subplot(gs[3, 0])
+    ax_vmin = fig.add_subplot(gs[4, 0])
+    ax_vmax = fig.add_subplot(gs[5, 0])
+
+    # clean slider axes (no ticks)
+    for ax_s in (ax_thr, ax_idx, ax_vmin, ax_vmax):
+        ax_s.tick_params(left=False, labelleft=False,
+                         bottom=False, labelbottom=False)
+
+    if title is None:
+        fig.suptitle(f"Beam image viewer (profiles+FFT, {mode})")
+    else:
+        fig.suptitle(title)
+
+    # base image depending on mode
+    arr_f32 = arr.astype(np.float32)
+    if mode == "average":
+        base_img = np.nanmean(arr_f32, axis=0)
+    elif mode == "overlap":
+        base_img = np.nansum(arr_f32, axis=0)
+    else:
+        base_img = arr_f32[0]
+
+    # local vmin/vmax (overlap might have different range)
+    if mode == "overlap":
+        data_min_local = float(np.nanmin(base_img))
+        data_max_local = float(np.nanmax(base_img))
+        if not np.isfinite(data_min_local) or not np.isfinite(data_max_local) or data_min_local == data_max_local:
+            data_min_local, data_max_local = data_min, data_max
+    else:
+        data_min_local, data_max_local = data_min, data_max
+
+    # -------- threshold slider (lower-clip) --------
+    s_thr = Slider(
+        ax=ax_thr,
+        label="threshold (lower clip)",
+        valmin=data_min_local,
+        valmax=data_max_local,
+        valinit=data_min_local,   # start with no clipping
+    )
+
+    def _apply_threshold(raw, thr=None):
+        """
+        Lower-clip threshold:
+          values < thr -> 0
+          values >= thr -> unchanged
+        """
+        if thr is None:
+            thr = s_thr.val
+        disp = raw.astype(float).copy()
+        # treat NaNs as 0 so they don't mess up FFT
+        disp[~np.isfinite(disp)] = 0.0
+        mask = disp < thr
+        disp[mask] = 0.0
+        return disp
+
+    # -------- profiles axes on same canvas --------
+    divider = make_axes_locatable(ax_img)
+    ax_xprof = divider.append_axes("top", 1.0, pad=0.1, sharex=ax_img)
+    ax_yprof = divider.append_axes("right", 1.0, pad=0.1, sharey=ax_img)
+
+    plt.setp(ax_xprof.get_xticklabels(), visible=False)
+    plt.setp(ax_yprof.get_yticklabels(), visible=False)
+
+    ax_xprof.set_ylabel("Proj Y")
+    ax_yprof.set_xlabel("Proj X")
+
+    # extent for imshow
+    im_kwargs = dict(
+        cmap=cmap,
+        origin="upper",
+        vmin=data_min_local,
+        vmax=data_max_local,
+    )
+    if use_extent:
+        im_kwargs["extent"] = extent
+
+    # shared state: current raw image (before threshold)
+    current_raw = {"img": base_img}
+
+    # initial display with threshold applied (no clipping at start)
+    disp0 = _apply_threshold(current_raw["img"], thr=data_min_local)
+    im = ax_img.imshow(disp0, **im_kwargs)
+
+    # x, y axes for profiles
+    if x_axis is None:
+        x_vals = np.arange(W)
+    else:
+        x_vals = np.asarray(x_axis)
+
+    if y_axis is None:
+        y_vals = np.arange(H)
+    else:
+        y_vals = np.asarray(y_axis)
+
+    # initial profiles
+    px0 = np.mean(disp0, axis=0)
+    py0 = np.mean(disp0, axis=1)
+
+    line_x, = ax_xprof.plot(x_vals, px0, lw=1.0)
+    line_y, = ax_yprof.plot(py0, y_vals, lw=1.0)
+
+    def _update_profiles(disp):
+        px = np.mean(disp, axis=0)
+        py = np.mean(disp, axis=1)
+        line_x.set_ydata(px)
+        line_y.set_xdata(py)
+        ax_xprof.relim()
+        ax_xprof.autoscale_view()
+        ax_yprof.relim()
+        ax_yprof.autoscale_view()
+
+    ax_img.set_xlabel("x (pixel)" if x_axis is None else "x")
+    ax_img.set_ylabel("y (pixel)" if y_axis is None else "y")
+
+    # -------- 2D FFT panel (always visible) --------
+    def _update_fft(disp):
+        # FFT of thresholded image
+        fft = np.fft.fftshift(np.fft.fft2(disp))
+        mag = np.log10(np.abs(fft) + 1e-6)
+        ax_fft.clear()
+        ax_fft.imshow(mag, origin="lower", cmap="viridis")
+        ax_fft.set_title("2D FFT log10|F(kx, ky)|")
+        ax_fft.set_xlabel("kx")
+        ax_fft.set_ylabel("ky")
+
+    _update_fft(disp0)
+
+    # -------- shot slider (single mode) --------
+    use_idx_slider = (mode == "single" and N > 1)
+    if use_idx_slider:
+        s_idx = Slider(
+            ax=ax_idx,
+            label="shot index",
+            valmin=0,
+            valmax=N - 1,
+            valinit=0,
+            valstep=1,
+        )
+
+        def _update_shot(_val):
+            idx = int(s_idx.val)
+            img = arr_f32[idx]
+            current_raw["img"] = img
+            disp = _apply_threshold(img)
+            im.set_data(disp)
+            _update_profiles(disp)
+            _update_fft(disp)
+            ax_img.set_title(f"Shot {idx}")
+            fig.canvas.draw_idle()
+
+        s_idx.on_changed(_update_shot)
+        ax_img.set_title("Shot 0")
+    else:
+        ax_idx.set_visible(False)
+        if mode == "average":
+            ax_img.set_title("Average over all shots")
+        elif mode == "overlap":
+            ax_img.set_title(f"Overlap of {N} shots")
+
+    # -------- vmin / vmax sliders --------
+    s_vmin = Slider(ax=ax_vmin, label="vmin",
+                    valmin=data_min_local, valmax=data_max_local, valinit=data_min_local)
+    s_vmax = Slider(ax=ax_vmax, label="vmax",
+                    valmin=data_min_local, valmax=data_max_local, valinit=data_max_local)
+
+    def _update_clim(_):
+        vmin = s_vmin.val
+        vmax = s_vmax.val
+        vmin, vmax = _sanitize(vmin, vmax)
+        im.set_clim(vmin=vmin, vmax=vmax)
+        fig.canvas.draw_idle()
+
+    s_vmin.on_changed(_update_clim)
+    s_vmax.on_changed(_update_clim)
+
+    # -------- threshold callback (updates everything) --------
+    def _update_threshold(_):
+        raw = current_raw["img"]
+        disp = _apply_threshold(raw)
+        im.set_data(disp)
+        _update_profiles(disp)
+        _update_fft(disp)
+        fig.canvas.draw_idle()
+
+    s_thr.on_changed(_update_threshold)
+
+    plt.show()
+    return fig, ax_img, ax_fft
+
+
 
 #%%
 def _make_time_base(n_samples, ns_per_div=None, sec_per_div=None):

@@ -19,7 +19,9 @@ Mainscript
 │     ├──rotate_one_image(img, angle_deg)
 │     ├──rotate_all_image(img, angle_deg)
 │     ├──ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
+│     ├──rectangle_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
 │     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
+│     ├──bg_substraction(img_main, img_bg)
 ```
 ## Documentation
 ### LoadDat
@@ -105,4 +107,10 @@ This module includes various tools to process the image or ict signal
 > &nbsp;&nbsp;&nbsp;&nbsp;    ellipse_info: ellipse dictionary. if it is None, the fuction will try to get ellipse_info from session_state.  
 > &nbsp;&nbsp;&nbsp;&nbsp;    overwrite: if this is False, then the function will try to get info from sesson_state. Otherwise, it update the session_state.  
 
-
+> **img = bg_substraction(img_main, img_bg)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    average background image and substract it from main images  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    img_main: main images in the form of (Nshot, X, Y)  
+> &nbsp;&nbsp;&nbsp;&nbsp;    img_bg: background images in the form of (Nshot, X, Y)  
+> **OUtput**
+> &nbsp;&nbsp;&nbsp;&nbsp; substracted main image array  

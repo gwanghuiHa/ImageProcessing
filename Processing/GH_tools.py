@@ -24,6 +24,10 @@ conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
     yag: size of the yag in meter
     ellipse_info: ellipse dictionary. if it is None, the fuction will try to get ellipse_info from session_state.
     overwrite: if this is False, then the function will try to get info from sesson_state. Otherwise, it update the session_state.
+
+bg_substraction(img_main, img_bg)
+    average background image and substract it from main images
+    images must be in the form of (Nshot, X, Y)
 """
 from . import session_state
 #%% rotations
@@ -357,8 +361,19 @@ def conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True):
         session_state.processing_info["calibration"] = cal
         session_state.processing_info["fiducial"] = fiducial
     return cal, fiducial
-
-
+#%% Background substraction
+def bg_substraction(img_main, img_bg):
+    """
+    average background image and substract it from main images
+    images must be in the form of (Nshot, X, Y)
+    """
+    if img_bg.ndim == 3:
+        bg = np.mean(img_bg,axis=0)
+    else:
+        bg = img_bg
+    out = img_main-bg
+    out[out<0] = 0
+    return out
 
 
 
