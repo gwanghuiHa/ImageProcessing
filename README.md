@@ -23,8 +23,8 @@ Mainscript
 │     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
 │     ├──bg_substraction(img_main, img_bg)
 │     ├──apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)
-│     ├──roi_mean_value(image,roi_info=None,roi_type="ellipse")
-│     ├──
+│     ├──apply_roi_threshold(images, roi_info=None, roi_type="ellipse", scaling=1.0, save_scaling=True)
+│     ├──apply_median_filter(images, window_size=3, save=True)
 │     ├──
 │     ├──
 │     ├──
