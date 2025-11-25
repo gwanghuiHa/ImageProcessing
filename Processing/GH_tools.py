@@ -3,31 +3,6 @@ Collection of script that GH may use for processing
 
 @author: Gwanghui
 
-rotate_one_image(img, angle_deg=None)
-rotate_all_image(img, angle_deg=None,overwrite=True)
-    img: original image array
-    angle_deg: rotation angle in deg. if this is None or [], it load data from session_state.
-    overwrite: if this is true, angle used in this function will be uploaded to the session_state.
-
-ellipse_info = ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)    
-    manually drawing ellipse to on the canvas. You must open any type of canvas and provide its axes info.  
-    ax: pyplot figure's axis info.  
-    ellipse_info: dictionary including center_x, center_y, width, and height of ellipse.  
-
-rect_info = rectangle_manual(ax= ax, line_color="orange", line_style="--", line_width=1.5)
-    manually drawing rectangle to on the canvas. You must open any type of canvas and provide its axes info.  
-    ax: pyplot figure's axis info.  
-    rect_info: dictionary including center_x, center_y, width, and height of rectangle.  
-
-conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
-    using ellipse info update calibration factor and fiducial
-    yag: size of the yag in meter
-    ellipse_info: ellipse dictionary. if it is None, the fuction will try to get ellipse_info from session_state.
-    overwrite: if this is False, then the function will try to get info from sesson_state. Otherwise, it update the session_state.
-
-bg_substraction(img_main, img_bg)
-    average background image and substract it from main images
-    images must be in the form of (Nshot, X, Y)
 """
 from . import session_state
 #%% rotations
@@ -374,7 +349,295 @@ def bg_substraction(img_main, img_bg):
     out = img_main-bg
     out[out<0] = 0
     return out
+#%% ROI
+def apply_roi_mask(
+    images,
+    roi_info=None,
+    roi_type="ellipse",   # "ellipse" or "rectangle"
+    outside_value=0,
+):
+    """
+    Zero all pixels outside of ROI.
 
+    Parameters
+    ----------
+    images : array
+        2D (H, W) or 3D (N, H, W) image(s).
+    roi_info : dict or [] or None
+        If dict, must be:
+            {'center_x', 'center_y', 'width', 'height'} in pixel coordinates.
+        If [] or None, ROI will be loaded from
+            session_state.processing_info["ellipse_info"]  (for roi_type='ellipse')
+            session_state.processing_info["rect_info"]     (for roi_type='rect')
+    roi_type : {'ellipse','rect'}
+        Shape of the ROI (axis-aligned).
+    outside_value : scalar
+        Value to assign outside the ROI (default 0).
 
+    Returns
+    -------
+    masked : array
+        Same shape and dtype as input, with outside-ROI pixels set to outside_value.
+    """
+    # ----- normalize input images -----
+    arr = np.asarray(images)
+    if arr.ndim == 2:
+        arr = arr[None, ...]   # -> (N, H, W)
+        squeeze_back = True
+    elif arr.ndim == 3:
+        squeeze_back = False
+    else:
+        raise ValueError("images must be 2D (H,W) or 3D (N,H,W)")
 
+    N, H, W = arr.shape
 
+    # ----- fetch ROI info if not provided -----
+    if roi_info is None or roi_info == []:
+        if roi_type.lower() == "ellipse":
+            roi_info = session_state.processing_info.get("ellipse_info", None)
+        elif roi_type.lower() == "rect":
+            roi_info = session_state.processing_info.get("rect_info", None)
+        else:
+            raise ValueError("roi_type must be 'ellipse' or 'rectangle'")
+
+        if roi_info is None:
+            raise ValueError(
+                f"No ROI info provided and "
+                f"session_state.processing_info does not contain "
+                f"key for roi_type='{roi_type}'."
+            )
+
+    # ----- read ROI parameters -----
+    cx = float(roi_info["center_x"])
+    cy = float(roi_info["center_y"])
+    w  = float(roi_info["width"])
+    h  = float(roi_info["height"])
+
+    # pixel grids: y = rows, x = columns
+    yy, xx = np.ogrid[0:H, 0:W]
+
+    roi_type_low = roi_type.lower()
+    if roi_type_low == "ellipse":
+        rx = w / 2.0
+        ry = h / 2.0
+        if rx <= 0 or ry <= 0:
+            raise ValueError("ROI width/height must be positive for ellipse.")
+        normx = (xx - cx) / rx
+        normy = (yy - cy) / ry
+        mask2d = (normx**2 + normy**2) <= 1.0
+
+    elif roi_type_low == "rect":
+        half_w = w / 2.0
+        half_h = h / 2.0
+        if half_w <= 0 or half_h <= 0:
+            raise ValueError("ROI width/height must be positive for rectangle.")
+        mask2d = (
+            (xx >= cx - half_w) &
+            (xx <= cx + half_w) &
+            (yy >= cy - half_h) &
+            (yy <= cy + half_h)
+        )
+    else:
+        raise ValueError("roi_type must be 'ellipse' or 'rect'")
+
+    # broadcast mask over N shots
+    mask3d = np.broadcast_to(mask2d, (N, H, W))
+
+    # apply mask
+    out = arr.copy()
+    out[~mask3d] = outside_value
+
+    if squeeze_back:
+        return out[0]
+    return out
+#%%
+def apply_roi_threshold(
+    images,
+    roi_info=None,
+    roi_type="ellipse",          # "ellipse" or "rectangle"
+    scaling=1.0,
+    save_scaling=True,
+):
+    """
+    ROI-based background thresholding.
+
+    For each shot:
+      1) compute mean intensity inside ROI,
+      2) threshold = scaling * mean,
+      3) new_image = image - threshold, with negatives set to 0.
+
+    Parameters
+    ----------
+    images : array
+        2D (H, W) or 3D (N, H, W).
+    roi_info : dict or [] or None
+        If dict, must be:
+            {'center_x', 'center_y', 'width', 'height'} in pixels.
+        If [] or None:
+            - roi_type == "ellipse"   -> use session_state.processing_info["ellipse_info"]
+            - roi_type == "rect" -> use session_state.processing_info["rect_info"]
+    roi_type : {'ellipse','rect'}
+        Shape of ROI (axis-aligned).
+    scaling : float
+        Factor to multiply the ROI mean before subtracting.
+    save_scaling : bool
+        If True, save scaling into session_state.processing_info[threshold_scaling].
+
+    Returns
+    -------
+    out : array
+        Thresholded image(s), same shape and dtype as input.
+    """
+
+    # ----- normalize images -----
+    arr = np.asarray(images)
+    orig_dtype = arr.dtype
+
+    if arr.ndim == 2:
+        arr = arr[None, ...]   # -> (N, H, W)
+        squeeze_back = True
+    elif arr.ndim == 3:
+        squeeze_back = False
+    else:
+        raise ValueError("images must be 2D (H,W) or 3D (N,H,W)")
+
+    N, H, W = arr.shape
+
+    # ----- get ROI info -----
+    if roi_info is None or roi_info == []:
+        if roi_type.lower() == "ellipse":
+            roi_info = session_state.processing_info.get("ellipse_info", None)
+        elif roi_type.lower() == "rect":
+            roi_info = session_state.processing_info.get("rect_info", None)
+        else:
+            raise ValueError("roi_type must be 'ellipse' or 'rect'")
+
+        if roi_info is None:
+            raise ValueError(
+                f"No ROI info provided and no stored ROI for roi_type='{roi_type}'."
+            )
+
+    cx = float(roi_info["center_x"])
+    cy = float(roi_info["center_y"])
+    w  = float(roi_info["width"])
+    h  = float(roi_info["height"])
+
+    # ----- build 2D ROI mask -----
+    yy, xx = np.ogrid[0:H, 0:W]
+    roi_type_low = roi_type.lower()
+
+    if roi_type_low == "ellipse":
+        rx = w / 2.0
+        ry = h / 2.0
+        if rx <= 0 or ry <= 0:
+            raise ValueError("ROI width/height must be positive for ellipse.")
+        normx = (xx - cx) / rx
+        normy = (yy - cy) / ry
+        mask2d = (normx**2 + normy**2) <= 1.0
+
+    elif roi_type_low == "rect":
+        half_w = w / 2.0
+        half_h = h / 2.0
+        if half_w <= 0 or half_h <= 0:
+            raise ValueError("ROI width/height must be positive for rect.")
+        mask2d = (
+            (xx >= cx - half_w) &
+            (xx <= cx + half_w) &
+            (yy >= cy - half_h) &
+            (yy <= cy + half_h)
+        )
+    else:
+        raise ValueError("roi_type must be 'ellipse' or 'rect'")
+
+    # ----- apply threshold per shot -----
+    # work in float, then cast back to original dtype
+    arr_f = arr.astype(float, copy=False)
+    out_f = np.empty_like(arr_f)
+
+    roi_pixels = mask2d
+
+    for i in range(N):
+        shot = arr_f[i]
+        vals = shot[roi_pixels]
+        if vals.size == 0:
+            mean_roi = 0.0
+        else:
+            mean_roi = float(vals.mean())
+
+        thr = scaling * mean_roi
+
+        temp = shot - thr
+        temp[temp < 0.0] = 0.0
+        out_f[i] = temp
+
+    # ----- save scaling factor -----
+    if save_scaling:
+        session_state.processing_info['threshold_scaling'] = float(scaling)
+
+    # ----- cast back to original dtype -----
+    if np.issubdtype(orig_dtype, np.integer):
+        # clip to valid range for integer type
+        info = np.iinfo(orig_dtype)
+        out_f = np.clip(out_f, info.min, info.max)
+        out = out_f.astype(orig_dtype)
+    else:
+        out = out_f.astype(orig_dtype, copy=False)
+
+    if squeeze_back:
+        return out[0]
+    return out
+#%% median filter
+from scipy.ndimage import median_filter
+def apply_median_filter(
+    images,
+    window_size=3,         # must be odd number: 3,5,7,...
+    save=True,
+):
+    """
+    Apply median filter to 2D or 3D images.
+    Saves the window size to session_state.processing_info[save_key].
+
+    Parameters
+    ----------
+    images : ndarray
+        (H,W) or (N,H,W)
+    window_size : int
+        Median filter window size (must be odd).
+    save : bool
+        If True, save window_size into session_state.processing_info.
+
+    Returns
+    -------
+    filtered : ndarray
+        Same shape as input, with median filtering applied.
+    """
+
+    # ---------- sanity check ----------
+    if window_size <= 0:
+        raise ValueError("window_size must be positive.")
+
+    if window_size % 2 == 0:
+        raise ValueError("window_size must be an *odd* integer: 3,5,7,...")
+
+    arr = np.asarray(images)
+
+    # ---------- apply filter ----------
+    if arr.ndim == 2:
+        # single image
+        out = median_filter(arr, size=window_size)
+
+    elif arr.ndim == 3:
+        # multiple images
+        N = arr.shape[0]
+        out = np.empty_like(arr)
+        for i in range(N):
+            out[i] = median_filter(arr[i], size=window_size)
+
+    else:
+        raise ValueError("images must be (H,W) or (N,H,W).")
+
+    # ---------- save window size ----------
+    if save:
+        session_state.processing_info['median_window'] = int(window_size)
+
+    return out

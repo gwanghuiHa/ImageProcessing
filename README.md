@@ -22,6 +22,13 @@ Mainscript
 │     ├──rectangle_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
 │     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
 │     ├──bg_substraction(img_main, img_bg)
+│     ├──apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)
+│     ├──roi_mean_value(image,roi_info=None,roi_type="ellipse")
+│     ├──
+│     ├──
+│     ├──
+│     ├──
+│     ├──
 ```
 ## Documentation
 ### LoadDat
@@ -112,5 +119,45 @@ This module includes various tools to process the image or ict signal
 > **Input**  
 > &nbsp;&nbsp;&nbsp;&nbsp;    img_main: main images in the form of (Nshot, X, Y)  
 > &nbsp;&nbsp;&nbsp;&nbsp;    img_bg: background images in the form of (Nshot, X, Y)  
-> **OUtput**
+> **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp; substracted main image array  
+
+> **out = apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    Zero all pixels outside of ROI.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    images: array, 2D (H, W) or 3D (N, H, W) image(s).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    roi_info: dict or [] or None  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;        If dict, must be:  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;            {'center_x', 'center_y', 'width', 'height'} in pixel coordinates.  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;        If [] or None, ROI will be loaded from  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;            session_state.processing_info["ellipse_info"]  (for roi_type='ellipse')  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;            session_state.processing_info["rect_info"]     (for roi_type='rectangle')  
+> &nbsp;&nbsp;&nbsp;&nbsp;    roi_type: {'ellipse','rect'}  
+> &nbsp;&nbsp;&nbsp;&nbsp;    outside_value: scalar value to assign outside the ROI (default 0).  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    out: roi applied images=(s)  
+
+> **out = apply_roi_threshold(images, roi_info=None, roi_type="ellipse", scaling=1.0, save_scaling=True)**  
+> &nbsp;&nbsp;&nbsp;&nbsp; ROI-based background thresholding.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp; images : array, 2D (H, W) or 3D (N, H, W). If 3D, mean over shots is used.   
+> &nbsp;&nbsp;&nbsp;&nbsp; roi_info : dict or [] or None  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;    If dict, must be:  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;      {'center_x', 'center_y', 'width', 'height'} in pixels.   
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;    If [] or None, ROI will be loaded from  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;      session_state.processing_info["ellipse_info"]  (roi_type='ellipse')  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;      session_state.processing_info["rect_info"]     (roi_type='rectangle')  
+> &nbsp;&nbsp;&nbsp;&nbsp;roi_type : {'ellipse','rect'}  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp; out : Thresholded image(s), same shape and dtype as input.
+
+> **out = apply_median_filter(images, window_size=3, save=True)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    Apply median filter to 2D or 3D images.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    Saves the window size to session_state.processing_info[save_key].  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp; images : ndarray (H,W) or (N,H,W)  
+> &nbsp;&nbsp;&nbsp;&nbsp;    window_size : int,   Median filter window size (must be odd).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    save : bool  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;        If True, save window_size into session_state.processing_info.  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    out : ndarray, Same shape as input, with median filtering applied.  
