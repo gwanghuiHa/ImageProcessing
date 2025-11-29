@@ -23,7 +23,6 @@ Mainscript
 │     ├──lasso_manual(ax, line_color="orange", line_style="--", line_width=1.5)
 │     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
 │     ├──bg_substraction(img_main, img_bg)
-│     ├──bg_substraction(img_main, img_bg)
 │     ├──subtract_bg_scaled(main_img, bg_template, roi_mask=None)
 │     ├──apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)
 │     ├──apply_roi_threshold(images, roi_info=None, roi_type="ellipse", scaling=1.0, save_scaling=True)
@@ -135,7 +134,7 @@ This module includes various tools to process the image or ict signal
 > **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp; substracted main image array  
 
-> ** bg_template = build_bg_template(bg_stack, method="median")**  
+> **bg_template = build_bg_template(bg_stack, method="median")**  
 > &nbsp;&nbsp;&nbsp;&nbsp;  generating mean or median background image from multiple background images.  
 > **Input**  
 > &nbsp;&nbsp;&nbsp;&nbsp;   bg_stack: background images (Nshot, H, W)  
