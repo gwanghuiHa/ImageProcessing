@@ -20,12 +20,15 @@ Mainscript
 │     ├──rotate_all_image(img, angle_deg)
 │     ├──ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
 │     ├──rectangle_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
+│     ├──lasso_manual(ax, line_color="orange", line_style="--", line_width=1.5)
 │     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
 │     ├──bg_substraction(img_main, img_bg)
+│     ├──bg_substraction(img_main, img_bg)
+│     ├──subtract_bg_scaled(main_img, bg_template, roi_mask=None)
 │     ├──apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)
 │     ├──apply_roi_threshold(images, roi_info=None, roi_type="ellipse", scaling=1.0, save_scaling=True)
 │     ├──apply_median_filter(images, window_size=3, save=True)
-│     ├──
+│     ├──clean_beam_array(resid, thr_ratio=0.01, min_size=300, do_open=True, do_close=True)
 │     ├──
 │     ├──
 │     ├──
@@ -107,6 +110,16 @@ This module includes various tools to process the image or ict signal
 > **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp;    rect_info: dictionary including center_x, center_y, width, and height of rectangle.  
 
+> **lasso_info = lasso_manual(ax, line_color="orange", line_style="--", line_width=1.5)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    Lasso / polygon selector on an existing axes, with previous-lasso display.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    - User clicks to define vertices (PolygonSelector).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    - Double-click closes polygon.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    - Press ENTER to accept polygon.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    ax: pyplot figure's axis info.   
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    lasso_info: dictionary including {"vertices": [(x0,y0), (x1,y1), ...]}  
+
 > **cal,fiducial = conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)**  
 > &nbsp;&nbsp;&nbsp;&nbsp;   using ellipse info update calibration factor and fiducial  
 > **Input**  
@@ -121,6 +134,24 @@ This module includes various tools to process the image or ict signal
 > &nbsp;&nbsp;&nbsp;&nbsp;    img_bg: background images in the form of (Nshot, X, Y)  
 > **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp; substracted main image array  
+
+> ** bg_template = build_bg_template(bg_stack, method="median")**  
+> &nbsp;&nbsp;&nbsp;&nbsp;  generating mean or median background image from multiple background images.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   bg_stack: background images (Nshot, H, W)  
+> &nbsp;&nbsp;&nbsp;&nbsp;   method: median or mean  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   bg_template: resulting image (H,W)  
+
+> **resid,ablist = subtract_bg_scaled(main_img, bg_template, roi_mask=None)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   Per-shot background subtraction using a scaled template:  main ≈ a * bg_template + b  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   main_img: (Nshot, H, W) array  
+> &nbsp;&nbsp;&nbsp;&nbsp;   bg_template: (H, W) array. You can generate it using "build_bg_template"  
+> &nbsp;&nbsp;&nbsp;&nbsp;     roi_mask: (H, W) bool array or None. True = pixels used for fitting a,b. If None, use all pixels.  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   resid: (H, W) float array, Background-subtracted image (negatives clipped to 0).  
+> &nbsp;&nbsp;&nbsp;&nbsp;   ablist: a and b scaling values for each shot.  
 
 > **out = apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)**  
 > &nbsp;&nbsp;&nbsp;&nbsp;    Zero all pixels outside of ROI.  
@@ -161,3 +192,15 @@ This module includes various tools to process the image or ict signal
 > &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;        If True, save window_size into session_state.processing_info.  
 > **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp;    out : ndarray, Same shape as input, with median filtering applied.  
+
+> **out = clean_beam_array(resid, thr_ratio=0.01, min_size=300, do_open=True, do_close=True)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;  Morphologically clean beam images (2D or 3D) using threshold + size filter + optional opening/closing.  
+> &nbsp;&nbsp;&nbsp;&nbsp;  Better to keep threshold below 0.01. min_size can usually be a few thousands.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;  resid: image(s), Shape (H, W) or (Nshot, H, W).  
+> &nbsp;&nbsp;&nbsp;&nbsp;  thr_ratio: Threshold = thr_ratio * max(resid_per_shot).  
+> &nbsp;&nbsp;&nbsp;&nbsp;  min_size: int, Remove connected regions smaller than this many pixels (per shot).  
+> &nbsp;&nbsp;&nbsp;&nbsp;  do_open: bool, Whether to perform binary opening (remove thin noise).  
+> &nbsp;&nbsp;&nbsp;&nbsp;  do_close: bool, Whether to perform binary closing (fill small holes).  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;  out: cleanded image(s).  

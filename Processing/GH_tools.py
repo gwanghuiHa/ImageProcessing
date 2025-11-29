@@ -316,6 +316,128 @@ def rectangle_manual(
 
     return info
 
+
+from matplotlib.widgets import PolygonSelector
+from matplotlib.patches import Polygon
+
+
+def lasso_manual(
+    ax,
+    line_color="orange",
+    line_style="--",
+    line_width=1.5,
+):
+    """
+    Lasso / polygon selector on an existing axes, with previous-lasso display.
+
+    - If session_state.processing_info["lasso_info"] exists, draw it (cyan, dotted)
+      as a reference.
+    - User clicks to define vertices (PolygonSelector).
+    - Double-click closes polygon.
+    - Press ENTER to accept polygon.
+    - Saves to session_state.processing_info["lasso_info"] as:
+          {"vertices": [(x0,y0), (x1,y1), ...]}
+    - Returns that dict (or None).
+    """
+    if ax is None:
+        print("[WARNING] No axes provided.")
+        return None
+
+    fig = ax.figure
+
+    # avoid tight_layout warning
+    try:
+        fig.set_tight_layout(False)
+    except Exception:
+        pass
+
+    # make sure toolbar is not in pan/zoom mode
+    try:
+        tb = fig.canvas.manager.toolbar
+        if tb is not None:
+            tb.mode = ""
+    except Exception:
+        pass
+
+    # ---------- draw previous lasso, if any ----------
+    prev = session_state.processing_info.get("lasso_info", None)
+    if prev is not None:
+        try:
+            verts_prev = prev.get("vertices", None)
+            if verts_prev is not None and len(verts_prev) >= 3:
+                poly_ref = Polygon(
+                    verts_prev,
+                    closed=True,
+                    fill=False,
+                    linestyle=":",
+                    linewidth=line_width,
+                    edgecolor="cyan",
+                    alpha=0.0,
+                )
+                ax.add_patch(poly_ref)
+                fig.canvas.draw_idle()
+        except Exception as e:
+            print(f"[lasso_manual] Could not draw previous lasso: {e}")
+
+    ax.set_title("Lasso: click vertices, double-click to close, ENTER to accept")
+
+    # where PolygonSelector will store the latest polygon
+    verts_holder = {"verts": None}
+
+    def _onselect(verts):
+        # verts is list of (x, y)
+        verts_holder["verts"] = [(float(x), float(y)) for x, y in verts]
+
+    # ---------- create PolygonSelector with minimal args ----------
+    selector = PolygonSelector(
+        ax,
+        _onselect,
+        useblit=False,
+        props = dict(color=line_color,linestyle=line_style,linewidth=line_width)
+    )
+    selector.set_active(True)
+
+    # try to style the line AFTER creation (best-effort only)
+    try:
+        # different versions use different attribute names; try common ones
+        line = getattr(selector, "line", None) or getattr(selector, "_line", None)
+        if line is not None:
+            line.set_color(line_color)
+            line.set_linestyle(line_style)
+            line.set_linewidth(line_width)
+    except Exception:
+        # styling is purely cosmetic; ignore failures
+        pass
+
+    result = {"value": None}
+
+    def _on_key(event):
+        if event.key in ("enter", "return"):
+            verts = verts_holder["verts"]
+            if verts is None or len(verts) < 3:
+                result["value"] = None
+            else:
+                result["value"] = {"vertices": verts}
+            try:
+                fig.canvas.stop_event_loop()
+            except Exception:
+                pass
+
+    cid = fig.canvas.mpl_connect("key_press_event", _on_key)
+
+    # block until ENTER
+    fig.canvas.start_event_loop(timeout=-1)
+    fig.canvas.mpl_disconnect(cid)
+
+    info = result["value"]
+
+    # save into global processing_info (overwrites previous)
+    session_state.processing_info["lasso_info"] = info
+
+    return info
+
+
+
 #%% Calibration
 def conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True):
     """
@@ -349,11 +471,71 @@ def bg_substraction(img_main, img_bg):
     out = img_main-bg
     out[out<0] = 0
     return out
+
+def build_bg_template(bg_stack, method="median"):
+    """
+    bg_stack : (N_bg, H, W)
+    method   : 'median' or 'mean'
+    """
+    bg_stack = bg_stack.astype(np.float32)
+
+    if method == "median":
+        bg_template = np.median(bg_stack, axis=0)
+    elif method == "mean":
+        bg_template = np.mean(bg_stack, axis=0)
+    else:
+        raise ValueError("method must be 'median' or 'mean'")
+    return bg_template
+
+def subtract_bg_scaled(main_img, bg_template, roi_mask=None):
+    """
+    main_img : (H,W) or (N,H,W)
+    """
+    main = main_img.astype(np.float32)
+    bg   = bg_template.astype(np.float32)
+
+    # ensure 3D: (N,H,W)
+    if main.ndim == 2:
+        main = main[None, ...]   # (1,H,W)
+
+    N, H, W = main.shape
+
+    if roi_mask is None:
+        roi_mask = np.ones((H, W), dtype=bool)
+
+    m = roi_mask.ravel()
+    x = bg.ravel()[m]   # template in ROI
+
+    resid = np.empty_like(main, dtype=np.float32)
+    ab_list = []
+
+    for i in range(N):
+        y = main[i].ravel()[m]   # this shot's data in ROI
+
+        A = np.vstack([x, np.ones_like(x)]).T
+        a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+
+        bg_est = a * bg + b
+        r = main[i] - bg_est
+        r[r < 0] = 0
+
+        resid[i] = r
+        ab_list.append((a, b))
+
+    # if input was 2D, return 2D
+    if main_img.ndim == 2:
+        return resid[0], ab_list[0]
+    else:
+        return resid, ab_list
+
+
 #%% ROI
+from matplotlib.path import Path
+
 def apply_roi_mask(
     images,
     roi_info=None,
-    roi_type="ellipse",   # "ellipse" or "rectangle"
+    roi_type="ellipse",   # "ellipse", "rect", or "lasso"
     outside_value=0,
 ):
     """
@@ -364,13 +546,15 @@ def apply_roi_mask(
     images : array
         2D (H, W) or 3D (N, H, W) image(s).
     roi_info : dict or [] or None
-        If dict, must be:
-            {'center_x', 'center_y', 'width', 'height'} in pixel coordinates.
+        If dict:
+          ellipse/rect: {'center_x','center_y','width','height'} in pixels
+          lasso:        {'vertices': [(x0,y0), (x1,y1), ...]}
         If [] or None, ROI will be loaded from
-            session_state.processing_info["ellipse_info"]  (for roi_type='ellipse')
-            session_state.processing_info["rect_info"]     (for roi_type='rect')
-    roi_type : {'ellipse','rect'}
-        Shape of the ROI (axis-aligned).
+          roi_type='ellipse' -> session_state.processing_info["ellipse_info"]
+          roi_type='rect'    -> session_state.processing_info["rect_info"]
+          roi_type='lasso'   -> session_state.processing_info["lasso_info"]
+    roi_type : {'ellipse','rect','lasso'}
+        Shape of the ROI (axis-aligned for ellipse/rect).
     outside_value : scalar
         Value to assign outside the ROI (default 0).
 
@@ -391,65 +575,88 @@ def apply_roi_mask(
 
     N, H, W = arr.shape
 
+    roi_type_low = roi_type.lower()
+
     # ----- fetch ROI info if not provided -----
     if roi_info is None or roi_info == []:
-        if roi_type.lower() == "ellipse":
-            roi_info = session_state.processing_info.get("ellipse_info", None)
-        elif roi_type.lower() == "rect":
-            roi_info = session_state.processing_info.get("rect_info", None)
+        if roi_type_low == "ellipse":
+            roi_info = session_state.processing_info.get("ROI_ellipse", None)
+        elif roi_type_low in ("rect", "rectangle"):
+            roi_info = session_state.processing_info.get("ROI_rect", None)
+        elif roi_type_low == "lasso":
+            roi_info = session_state.processing_info.get("ROI_lasso", None)
         else:
-            raise ValueError("roi_type must be 'ellipse' or 'rectangle'")
+            raise ValueError("roi_type must be 'ellipse', 'rect', or 'lasso'")
 
         if roi_info is None:
             raise ValueError(
                 f"No ROI info provided and "
                 f"session_state.processing_info does not contain "
-                f"key for roi_type='{roi_type}'."
+                f"a key for roi_type='{roi_type_low}'."
             )
-
-    # ----- read ROI parameters -----
-    cx = float(roi_info["center_x"])
-    cy = float(roi_info["center_y"])
-    w  = float(roi_info["width"])
-    h  = float(roi_info["height"])
 
     # pixel grids: y = rows, x = columns
     yy, xx = np.ogrid[0:H, 0:W]
 
-    roi_type_low = roi_type.lower()
+    # ----- build 2D mask -----
     if roi_type_low == "ellipse":
+        cx = float(roi_info["center_x"])
+        cy = float(roi_info["center_y"])
+        w  = float(roi_info["width"])
+        h  = float(roi_info["height"])
+
         rx = w / 2.0
         ry = h / 2.0
         if rx <= 0 or ry <= 0:
             raise ValueError("ROI width/height must be positive for ellipse.")
+
         normx = (xx - cx) / rx
         normy = (yy - cy) / ry
         mask2d = (normx**2 + normy**2) <= 1.0
 
-    elif roi_type_low == "rect":
+    elif roi_type_low in ("rect", "rectangle"):
+        cx = float(roi_info["center_x"])
+        cy = float(roi_info["center_y"])
+        w  = float(roi_info["width"])
+        h  = float(roi_info["height"])
+
         half_w = w / 2.0
         half_h = h / 2.0
         if half_w <= 0 or half_h <= 0:
             raise ValueError("ROI width/height must be positive for rectangle.")
+
         mask2d = (
             (xx >= cx - half_w) &
             (xx <= cx + half_w) &
             (yy >= cy - half_h) &
             (yy <= cy + half_h)
         )
+
+    elif roi_type_low == "lasso":
+        verts = np.asarray(roi_info["vertices"], dtype=float)
+        if verts.ndim != 2 or verts.shape[1] != 2 or len(verts) < 3:
+            raise ValueError("lasso roi_info['vertices'] must be list of (x,y) with len>=3")
+
+        # Path expects (x,y). Build mask by testing all pixel centers.
+        path = Path(verts)
+        # construct all (x,y) positions
+        xs, ys = np.meshgrid(np.arange(W), np.arange(H))
+        points = np.column_stack([xs.ravel(), ys.ravel()])
+        mask_flat = path.contains_points(points)
+        mask2d = mask_flat.reshape(H, W)
+
     else:
-        raise ValueError("roi_type must be 'ellipse' or 'rect'")
+        raise ValueError("roi_type must be 'ellipse', 'rect', or 'lasso'")
 
-    # broadcast mask over N shots
+    # ----- apply mask -----
     mask3d = np.broadcast_to(mask2d, (N, H, W))
-
-    # apply mask
     out = arr.copy()
     out[~mask3d] = outside_value
 
     if squeeze_back:
         return out[0]
     return out
+
 #%%
 def apply_roi_threshold(
     images,
@@ -641,3 +848,89 @@ def apply_median_filter(
         session_state.processing_info['median_window'] = int(window_size)
 
     return out
+#%% Morphological cleaning
+from skimage.morphology import remove_small_objects
+from scipy.ndimage import binary_opening, binary_closing
+
+def clean_beam_array(resid, thr_ratio=0.01, min_size=300,
+                     do_open=True, do_close=True):
+    """
+    Morphologically clean beam images (2D or 3D) using
+    threshold + size filter + optional opening/closing.
+
+    Parameters
+    ----------
+    resid : array
+        Background-subtracted image(s).
+        Shape (H, W) or (Nshot, H, W).
+    thr_ratio : float
+        Threshold = thr_ratio * max(resid_per_shot).
+    min_size : int
+        Remove connected regions smaller than this many pixels (per shot).
+    do_open : bool
+        Whether to perform binary opening (remove thin noise).
+    do_close : bool
+        Whether to perform binary closing (fill small holes).
+
+    Returns
+    -------
+    cleaned : array
+        Same shape as resid, but with non-beam pixels set to 0.
+        (Beam intensities are unchanged where kept.)
+    """
+
+    resid = np.asarray(resid, dtype=np.float32)
+
+    # ---------------- single 2D image ----------------
+    if resid.ndim == 2:
+        img = resid
+        max_val = img.max()
+        if max_val <= 0:
+            # nothing there
+            return np.zeros_like(img)
+
+        thr = thr_ratio * max_val
+        mask = img > thr
+
+        # size filter (2D)
+        if min_size > 1:
+            mask = remove_small_objects(mask, min_size=min_size)
+
+        if do_open:
+            mask = binary_opening(mask, iterations=1)
+        if do_close:
+            mask = binary_closing(mask, iterations=1)
+
+        cleaned = img * mask
+        return cleaned
+
+    # ---------------- stack (N, H, W) ----------------
+    elif resid.ndim == 3:
+        N, H, W = resid.shape
+        cleaned = np.zeros_like(resid, dtype=np.float32)
+
+        for i in range(N):
+            img = resid[i]
+            max_val = img.max()
+            if max_val <= 0:
+                # leave this frame as zeros
+                continue
+
+            thr = thr_ratio * max_val
+            mask = img > thr
+
+            # size filter per frame (2D)
+            if min_size > 1:
+                mask = remove_small_objects(mask, min_size=min_size)
+
+            if do_open:
+                mask = binary_opening(mask, iterations=1)
+            if do_close:
+                mask = binary_closing(mask, iterations=1)
+
+            cleaned[i] = img * mask
+
+        return cleaned
+
+    else:
+        raise ValueError("clean_beam_array expects 2D (H,W) or 3D (N,H,W) array.")

@@ -8,6 +8,7 @@ processing_info = {
     
     "ellipse_info": None,
     "rect_info": None,
+    "lasso_info":None,
     
     "calibration": None,
     "fiducial": None,
@@ -17,9 +18,11 @@ processing_info = {
     
     "ROI_ellipse": None,
     "ROI_rect": None,
+    "ROI_lasso": None,
 
     "Threshold_ellipse": None,
     "Threshold_rect": None,
+    "Threshold_lasso": None,
     
     "median_window": 3
     }
