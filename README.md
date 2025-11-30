@@ -17,23 +17,26 @@ Mainscript
 │     ├──image_viewer_simple(images,x_axis=None,y_axis=None,mode="single",cmap="viridis",title=None)
 │     └──ict_viewer(ict_wfm, ns_per_div=200, mode="single", title=None)
 │
-├──Processing
-│  └──GH_tools
-│     ├──rotate_one_image(img, angle_deg)
-│     ├──rotate_all_image(img, angle_deg)
-│     ├──ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
-│     ├──rectangle_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
-│     ├──lasso_manual(ax, line_color="orange", line_style="--", line_width=1.5)
-│     ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
-│     ├──bg_substraction(img_main, img_bg)
-│     ├──subtract_bg_scaled(main_img, bg_template, roi_mask=None)
-│     ├──apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)
-│     ├──apply_roi_threshold(images, roi_info=None, roi_type="ellipse", scaling=1.0, save_scaling=True)
-│     ├──apply_median_filter(images, window_size=3, save=True)
-│     ├──clean_beam_array(resid, thr_ratio=0.01, min_size=300, do_open=True, do_close=True)
-│     ├──
-│     ├──
-│     ├──
+└──Processing
+   ├──GH_tools
+   │  ├──rotate_one_image(img, angle_deg)
+   │  ├──rotate_all_image(img, angle_deg)
+   │  ├──ellipse_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
+   │  ├──rectangle_manual(ax, line_color="orange", line_style="--", line_width=1.5,)
+   │  ├──lasso_manual(ax, line_color="orange", line_style="--", line_width=1.5)
+   │  ├──conversion_yag(yag=50e-3,ellipse_info=None,overwrite=True)
+   │  ├──bg_substraction(img_main, img_bg)
+   │  ├──subtract_bg_scaled(main_img, bg_template, roi_mask=None)
+   │  ├──apply_roi_mask(image, roi_info=None, roi_type="ellipse", outside_value=0)
+   │  ├──apply_roi_threshold(images, roi_info=None, roi_type="ellipse", scaling=1.0, save_scaling=True)
+   │  ├──apply_median_filter(images, window_size=3, save=True)
+   │  ├──clean_beam_array(resid, thr_ratio=0.01, min_size=300, do_open=True, do_close=True)
+   │  ├──smooth_ict_traces(traces, window_pts=21, polyorder=3)
+   │  ├──ict_baseline_and_gate(traces, gate_left_pts=100, gate_right_pts=200, negative_pulse=True, use_mean_offset=True, manual_offset=0.0)
+   │  └──integrate_ict_charge(traces, ns_per_div, sensitivity="10:1", divisions=10, negative_pulse=True)
+   │
+   └──session_state
+      └──processing_info   
 ```
 ## Documentation
 ### LoadDat
