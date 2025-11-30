@@ -16,6 +16,10 @@ import numpy as np
 dat = LoadDat.AWAnpOut.load([],datType=[])
 dat_bg = LoadDat.AWAnpOut.load([],datType=[])
 
+# load if you have json for processing info
+do_you_have_json = False
+if do_you_have_json == True:
+    LoadDat.AWAnpOut.load_processing_info(filepath="processing_info.json")
 #%% Data check - Image
 check_individual = True
 check_all_at_once = True
@@ -126,7 +130,7 @@ elif selection_switch == 'flow3':
     img,ablist = Processing.GH_tools.subtract_bg_scaled(img, bg_template, roi_mask)
     
     # applying morphological cleaning
-    img = Processing.GH_tools.clean_beam_array(img, thr_ratio=0.005, min_size=5000, do_open=True, do_close=True) 
+    img = Processing.GH_tools.clean_beam_array(img, thr_ratio=0.01, min_size=5000, do_open=True, do_close=True) 
     fig1,ax1 = Viewer.Viewers.image_viewer_simple(img,x_axis=None,y_axis=None,mode="single",cmap="viridis",title=None)
 
 elif selection_switch == 'flow4':
@@ -161,12 +165,25 @@ elif selection_switch == 'flow4':
 
     fig2,ax2 = Viewer.Viewers.image_viewer_simple(img,x_axis=None,y_axis=None,mode="single",cmap="viridis",title=None)
 
+is_img_ready = False
+if is_img_ready == True:
+    dat[0]['image'] = img
+
 #%% Data check - ICT
-#%% Signal range
-#%% Signal background
+fig,ax = Viewer.Viewers.ict_viewer(dat[0]['Ch1_wfm'], ns_per_div=200, mode="single", title=None)
 #%% Signal smoothing
+wfm = dat[0]['Ch1_wfm']
+wfm = Processing.GH_tools.smooth_ict_traces(wfm, window_pts=21, polyorder=3)
+fig,ax = Viewer.Viewers.ict_viewer(wfm, ns_per_div=200, mode="single", title=None)
+Processing.session_state.processing_info['SG setting'] = (21,3)
+#%% Signal background removal
+wfm,peak_indices, gate_indices = Processing.GH_tools.ict_baseline_and_gate(wfm, gate_left_pts=100, gate_right_pts=200, negative_pulse=True, use_mean_offset=True, manual_offset=0.0)
+fig,ax = Viewer.Viewers.ict_viewer(wfm, ns_per_div=200, mode="single", title=None)
+Processing.session_state.processing_info['Signal_background'] = (100,200)
 #%% Charge calculation
+charge = Processing.GH_tools.integrate_ict_charge(wfm, ns_per_div=200, sensitivity="10:1", divisions=10, negative_pulse=True)
+dat[0]['Ch1_charge'] = charge
 #%% Saving processing setup
-
+LoadDat.AWAnpOut.save_processing_info(filepath="processing_info.json")
 #%% Saving data & windowing
-
+LoadDat.AWAnpOut.save_dat_npy(dat, filepath="dat_saved.npy")

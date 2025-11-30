@@ -934,3 +934,267 @@ def clean_beam_array(resid, thr_ratio=0.01, min_size=300,
 
     else:
         raise ValueError("clean_beam_array expects 2D (H,W) or 3D (N,H,W) array.")
+#%% ICT signal smoothing, SG
+from scipy.signal import savgol_filter
+
+def smooth_ict_traces(traces, window_pts=21, polyorder=3):
+    """
+    Smooth ICT traces with a Savitzky–Golay filter.
+
+    Parameters
+    ----------
+    traces : array-like
+        ICT data.
+        Shape:
+          - (Nsample,)       for a single shot, or
+          - (Nshot, Nsample) for multiple shots (one channel).
+        Values are voltages (or arbitrary ICT units).
+
+    window_pts : int
+        Window length in *samples*.
+        Must be odd and > polyorder.
+        (Typical values: 11, 21, 31, ...)
+
+    polyorder : int
+        Polynomial order for Savitzky–Golay filter.
+        Must be < window_pts.
+        (Typically 2 or 3.)
+
+    Returns
+    -------
+    smoothed : ndarray
+        Same shape as `traces`, but smoothed.
+    """
+
+    traces = np.asarray(traces, dtype=np.float32)
+
+    # --- ensure a valid window length ---
+    win = int(window_pts)
+    if win < 3:
+        win = 3
+    if win % 2 == 0:         # must be odd
+        win += 1
+    if win <= polyorder:     # must be > polyorder
+        win = polyorder + 2
+        if win % 2 == 0:
+            win += 1
+
+    # --- apply filter ---
+    if traces.ndim == 1:
+        # Single shot: (Nsample,)
+        smoothed = savgol_filter(traces, window_length=win,
+                                 polyorder=polyorder, mode="interp")
+    elif traces.ndim == 2:
+        # Multi-shot: (Nshot, Nsample)
+        Nshot, Nsample = traces.shape
+        smoothed = np.empty_like(traces)
+        for i in range(Nshot):
+            smoothed[i] = savgol_filter(traces[i],
+                                        window_length=win,
+                                        polyorder=polyorder,
+                                        mode="interp")
+    else:
+        raise ValueError("traces must be 1D (Nsample,) or 2D (Nshot, Nsample).")
+
+    return smoothed
+
+
+def ict_baseline_and_gate(traces,
+                          gate_left_pts=100,
+                          gate_right_pts=200,
+                          negative_pulse=True,
+                          use_mean_offset=True,
+                          manual_offset=0.0):
+    """
+    ICT baseline (DC offset) subtraction + time gating
+    to run right before integration.
+
+    Parameters
+    ----------
+    traces : array-like
+        ICT data (smoothed or raw).
+        Shape:
+          - (Nsample,)       for a single shot, or
+          - (Nshot, Nsample) for multiple shots.
+
+    gate_left_pts : int
+        Number of samples to include to the *left* of the peak.
+        (i.e., how far before the peak the gate starts.)
+
+    gate_right_pts : int
+        Number of samples to include to the *right* of the peak.
+        (i.e., how far after the peak the gate ends.)
+
+    negative_pulse : bool
+        If True, find peak with argmin (ICT is negative pulse).
+        If False, use argmax.
+
+    use_mean_offset : bool
+        If True:
+            offset = mean( samples outside [index1, index2] )
+        If False:
+            offset = manual_offset
+
+    manual_offset : float
+        Offset value used if use_mean_offset is False.
+
+    Returns
+    -------
+    gated : ndarray
+        Baseline-subtracted and gated traces.
+        Same shape as `traces`. Outside the gate → 0.
+
+    peak_indices : ndarray
+        Peak index per shot (shape (Nshot,)).
+
+    gate_indices : ndarray
+        Array of shape (Nshot, 2) with [index1, index2] for each shot.
+        index1 inclusive, index2 exclusive (Python slice style).
+    """
+
+    traces = np.asarray(traces, dtype=np.float32)
+
+    # normalize to (Nshot, Nsample)
+    if traces.ndim == 1:
+        traces_2d = traces[None, :]
+        single = True
+    elif traces.ndim == 2:
+        traces_2d = traces
+        single = False
+    else:
+        raise ValueError("traces must be 1D or 2D")
+
+    Nshot, Nsample = traces_2d.shape
+    gated = np.zeros_like(traces_2d, dtype=np.float32)
+
+    peak_indices = np.zeros(Nshot, dtype=int)
+    gate_indices = np.zeros((Nshot, 2), dtype=int)
+
+    for i in range(Nshot):
+        sig = traces_2d[i]
+
+        # --- Step 3: peak detection ---
+        if negative_pulse:
+            peakloc = int(np.argmin(sig))
+        else:
+            peakloc = int(np.argmax(sig))
+
+        # --- Step 4: compute gate indices ---
+        idx1 = max(0, peakloc - int(gate_left_pts))
+        idx2 = min(Nsample, peakloc + int(gate_right_pts))
+
+        peak_indices[i] = peakloc
+        gate_indices[i, 0] = idx1
+        gate_indices[i, 1] = idx2
+
+        # --- Step 5: DC offset estimation ---
+        if use_mean_offset:
+            # concatenate pre- and post-gate regions
+            baseline_parts = []
+            if idx1 > 0:
+                baseline_parts.append(sig[:idx1])
+            if idx2 < Nsample:
+                baseline_parts.append(sig[idx2:])
+            if baseline_parts:
+                baseline_vals = np.concatenate(baseline_parts)
+                offset = float(baseline_vals.mean())
+            else:
+                # no baseline region left (gate covers all)
+                offset = 0.0
+        else:
+            offset = float(manual_offset)
+
+        # --- Step 6: subtract offset ---
+        sig_corr = sig - offset
+
+        # --- Step 7: zero outside gate ---
+        sig_corr[:idx1] = 0.0
+        sig_corr[idx2:] = 0.0
+
+        gated[i] = sig_corr
+
+    if single:
+        return gated[0], peak_indices[0], gate_indices[0]
+    else:
+        return gated, peak_indices, gate_indices
+
+
+def integrate_ict_charge(traces,
+                         ns_per_div,
+                         sensitivity="10:1",
+                         divisions=10,
+                         negative_pulse=True):
+    """
+    Integrate ICT traces to compute charge in nC.
+
+    Parameters
+    ----------
+    traces : array-like
+        Baseline-subtracted & gated ICT signal.
+        Shape (Nsample,) or (Nshot, Nsample). Units: volts.
+
+    ns_per_div : float
+        Horizontal scale of the oscilloscope (ns per division).
+
+    sensitivity : {"10:1", "20:1"}
+        ICT sensitivity setting (e.g., 10 nC/V vs 20 nC/V in the hardware UI).
+        The function selects the appropriate calibration factor internally.
+
+    divisions : int
+        Number of horizontal divisions on the oscilloscope (usually 10).
+
+    negative_pulse : bool
+        ICT pulses are usually negative. If True, flip sign so charge is positive.
+
+    Returns
+    -------
+    Q_nC : float or ndarray
+        Charge per shot in nC.
+
+    dt_s : float
+        Time step between samples (seconds).
+    """
+
+    # ---- determine calibration factor based on ICT sensitivity ----
+    s = sensitivity.strip()
+    if s == "10:1":
+        calib_factor = 2.50   # calibration constant for 10:1 sensitivity
+    elif s == "20:1":
+        calib_factor = 1.25   # calibration constant for 20:1 sensitivity
+    else:
+        raise ValueError("sensitivity must be '10:1' or '20:1'.")
+
+    arr = np.asarray(traces, dtype=np.float64)
+
+    # normalize input shape
+    if arr.ndim == 1:
+        arr = arr[None, :]
+        single = True
+    elif arr.ndim == 2:
+        single = False
+    else:
+        raise ValueError("traces must be 1D or 2D array.")
+
+    Nshot, Nsample = arr.shape
+
+    # ---- compute time step from scope setting ----
+    total_ns = ns_per_div * divisions
+    dt_ns = total_ns / Nsample
+    dt_s = dt_ns * 1e-9
+
+    # ---- integrate ----
+    Q_nC = np.zeros(Nshot)
+
+    for i in range(Nshot):
+        sig = arr[i]
+
+        area_Vs = np.sum(sig) * dt_s   # ∫ V dt
+
+        if negative_pulse:
+            area_Vs = -area_Vs         # negative pulse → positive charge
+
+        # charge [C] = area_Vs / calib_factor
+        # charge [nC] = ... * 1e9
+        Q_nC[i] = area_Vs / calib_factor * 1e9
+
+    return (Q_nC[0] if single else Q_nC), dt_s

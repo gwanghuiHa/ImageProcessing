@@ -233,4 +233,52 @@ def validate_dict(temp):
 
     return True
 
+#%% save/load json
+import json
+import Processing
 
+def save_processing_info(filepath="processing_info.json"):
+    """
+    Save Processing.session_state.processing_info to a JSON file.
+
+    Parameters
+    ----------
+    filepath : str
+        Where to save the JSON.
+    """
+    info = Processing.session_state.processing_info
+
+    # ensure the parent folder exists
+    os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(info, f, indent=4)
+
+    print(f"[OK] processing_info saved to {filepath}")
+
+def load_processing_info(filepath="processing_info.json"):
+    """
+    Load JSON file and overwrite Processing.session_state.processing_info.
+
+    Parameters
+    ----------
+    filepath : str
+        JSON file to load.
+    """
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        loaded = json.load(f)
+
+    # Overwrite (not merge)
+    Processing.session_state.processing_info = loaded
+
+    print(f"[OK] processing_info loaded from {filepath}")
+
+#%% saving data
+def save_dat_npy(dat, filepath="dat_saved.npy"):
+    """
+    Save the 'dat' variable to a .npy file using allow_pickle=True,
+    which preserves nested structures (dicts, lists, arrays).
+    """
+    np.save(filepath, dat, allow_pickle=True)
+    print(f"[OK] dat saved to {filepath}")

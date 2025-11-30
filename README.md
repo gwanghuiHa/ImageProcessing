@@ -7,7 +7,10 @@ Mainscript
 │
 ├──LoadDat
 │  └──AWAnpOut
-│      └──load(filenames=[], datType=[])
+│     ├──load(filenames=[], datType=[])
+│     ├──save_dat_npy(dat, filepath="dat_saved.npy")
+│     ├──save_processing_info(filepath="processing_info.json")
+│     └──load_processing_info(filepath="processing_info.json")
 │
 ├──Viewer
 │  └──Viewers
@@ -43,6 +46,26 @@ This module includes File I/O functions.
 >  &nbsp;&nbsp;&nbsp;&nbsp;datType: keys for the data list (e.g., 'image', 'ict_ch1', 'Ch2_wfm'). If empty, all keys will be considered.  
 >  **Output**  
 >  &nbsp;&nbsp;&nbsp;&nbsp;dat: list including *.npy data  
+
+
+> **save_dat_npy(dat, filepath="dat_saved.npy")**  
+>  &nbsp;&nbsp;&nbsp;&nbsp;     Save the 'dat' variable to a .npy file using allow_pickle=True, which preserves nested structures (dicts, lists, arrays).  
+> **Input**  
+>  &nbsp;&nbsp;&nbsp;&nbsp; dat: processed data.  
+>  &nbsp;&nbsp;&nbsp;&nbsp; filepath: filepath and name for saving.  
+
+
+> **save_processing_info(filepath="processing_info.json")**  
+>  &nbsp;&nbsp;&nbsp;&nbsp;    Save Processing.session_state.processing_info to a JSON file.  
+> **Input**  
+>  &nbsp;&nbsp;&nbsp;&nbsp;    filepath: file path and name for json file.  
+    
+
+> **load_processing_info(filepath="processing_info.json")**  
+>  &nbsp;&nbsp;&nbsp;&nbsp;    Load JSON file and overwrite Processing.session_state.processing_info.  
+>  **Input**  
+>  &nbsp;&nbsp;&nbsp;&nbsp;    filepath: file path and name for json file to load.
+
 
 ### Viewer
 This module includes all image or ict wave form viewers  
@@ -203,3 +226,45 @@ This module includes various tools to process the image or ict signal
 > &nbsp;&nbsp;&nbsp;&nbsp;  do_close: bool, Whether to perform binary closing (fill small holes).  
 > **Output**  
 > &nbsp;&nbsp;&nbsp;&nbsp;  out: cleanded image(s).  
+
+
+> **out = smooth_ict_traces(traces, window_pts=21, polyorder=3)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;   Smooth ICT traces with a Savitzky–Golay filter.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    traces: ICT data (Nshot, voltage)  
+> &nbsp;&nbsp;&nbsp;&nbsp;    window_pts: int, Window length in *samples*. Must be odd and > polyorder. (Typical values: 11, 21, 31, ...)  
+> &nbsp;&nbsp;&nbsp;&nbsp;    polyorder: int, Polynomial order for Savitzky–Golay filter. Must be < window_pts. (Typically 2 or 3.)  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    out: smoothed ICT signals.  
+
+
+> **out, peak_indices, gate_indices = ict_baseline_and_gate(traces, gate_left_pts=100, gate_right_pts=200, negative_pulse=True, use_mean_offset=True, manual_offset=0.0)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    ICT baseline (DC offset) subtraction + time gating to run right before integration.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    traces: ICT data (smoothed or raw).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    gate_left_pts: int, Number of samples to include to the *left* of the peak. (i.e., how far before the peak the gate starts.)  
+> &nbsp;&nbsp;&nbsp;&nbsp;    gate_right_pts: int, Number of samples to include to the *right* of the peak. (i.e., how far after the peak the gate ends.)  
+> &nbsp;&nbsp;&nbsp;&nbsp;    negative_pulse: bool, If True, find peak with argmin (ICT is negative pulse). If False, use argmax.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    use_mean_offset: bool  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;        If True:  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;            offset = mean( samples outside [index1, index2] )  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;        If False:  
+> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;            offset = manual_offset  
+> &nbsp;&nbsp;&nbsp;&nbsp;    manual_offset: Offset value used if use_mean_offset is False.  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    out: Baseline-subtracted and gated traces. Same shape as `traces`. Outside the gate → 0.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    peak_indices: Peak index per shot (shape (Nshot,)).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    gate_indices: Array of shape (Nshot, 2) with [index1, index2] for each shot. index1 inclusive, index2 exclusive (Python slice style).  
+
+> ** out = integrate_ict_charge(traces, ns_per_div, sensitivity="10:1", divisions=10, negative_pulse=True)**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    Integrate ICT traces to compute charge in nC.  
+> **Input**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    traces: Baseline-subtracted & gated ICT signal. Shape (Nsample,) or (Nshot, Nsample). Units: volts.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    ns_per_div: Horizontal scale of the oscilloscope (ns per division).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    sensitivity: {"10:1", "20:1"}, ICT sensitivity setting (e.g., 10 nC/V vs 20 nC/V in the hardware UI).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    divisions: int, Number of horizontal divisions on the oscilloscope (usually 10).  
+> &nbsp;&nbsp;&nbsp;&nbsp;    negative_pulse: bool, ICT pulses are usually negative. If True, flip sign so charge is positive.  
+> **Output**  
+> &nbsp;&nbsp;&nbsp;&nbsp;    out: Charge per shot in nC.  
+> &nbsp;&nbsp;&nbsp;&nbsp;    dt_s: Time step between samples (seconds).  
+

@@ -1,0 +1,25 @@
+{
+    "rotation_angle": 0,
+    "ellipse_info": null,
+    "rect_info": null,
+    "lasso_info": null,
+    "calibration": null,
+    "fiducial": null,
+    "Calibration_ellipse": null,
+    "Calibration_rect": null,
+    "ROI_ellipse": null,
+    "ROI_rect": null,
+    "ROI_lasso": null,
+    "Threshold_ellipse": null,
+    "Threshold_rect": null,
+    "Threshold_lasso": null,
+    "median_window": 3,
+    "SG setting": [
+        21,
+        3
+    ],
+    "Signal_background": [
+        100,
+        200
+    ]
+}
