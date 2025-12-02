@@ -101,17 +101,19 @@ def load(filenames=None, datType=None):
             img_arr = np.asarray(temp[img_key])
             # img_arr shape is (Nshot, Npix)
             n_pix = img_arr.shape[-1]
-
-            if   n_pix == 2304000:
-                camPix = (1200, 1920)
-            elif n_pix == 2228224:
-                camPix = (1088, 2048)
-            elif n_pix == 4194304:
-                camPix = (2048, 2048)
-            else:
-                raise ValueError(f"Unknown flat image size {n_pix}")
-
-            temp[img_key] = img_arr.reshape(-1, camPix[0], camPix[1])
+            
+            if n_pix>=307200:
+    
+                if   n_pix == 2304000:
+                    camPix = (1200, 1920)
+                elif n_pix == 2228224:
+                    camPix = (1088, 2048)
+                elif n_pix == 4194304:
+                    camPix = (2048, 2048)
+                else:
+                    raise ValueError(f"Unknown flat image size {n_pix}")
+    
+                temp[img_key] = img_arr.reshape(-1, camPix[0], camPix[1])
 
         # ---------------- WHAT TO RETURN --------------------
         if datType_user is None:
